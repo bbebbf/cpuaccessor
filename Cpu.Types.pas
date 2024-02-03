@@ -62,7 +62,7 @@ type
     Invoke: TGetLogicalProcessorInformationEx;
   end;
 
-  TPOWER_INFORMATION_LEVEL = Byte;
+  TPOWER_INFORMATION_LEVEL = DWORD;
 
   TCallNtPowerInformation = function(const aInformationLevel: TPOWER_INFORMATION_LEVEL;
     const aInputBuffer: Pointer; const aInputBufferLength: ULONG;
