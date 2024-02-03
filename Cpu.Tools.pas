@@ -61,7 +61,7 @@ begin
         var lEfficiencyClass: Byte := lCurrentPtr.Processor.Reserved[0];
         for var i := 0 to (SizeOf(lCurrentPtr.Processor.GroupMask[0].Mask) * 8) - 1 do
         begin
-          var lTestbit: ULONG32 := 1 shl i;
+          var lTestbit: KAFFINITY := KAFFINITY(1) shl i;
           // If lLogicalProcessor is not set in bit mask then continue.
           if lCurrentPtr.Processor.GroupMask[0].Mask and lTestbit <> lTestbit then
             Continue;

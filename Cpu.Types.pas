@@ -113,7 +113,7 @@ begin
     if i >= High(TInt031) then
       Exit;
     Inc(i);
-    lTestbit := lTestbit shl 1;
+    lTestbit := lTestbit * 2;
   end;
 end;
 
