@@ -10,9 +10,6 @@ type
     ['{55C23E04-6773-43D2-8E7B-892311FBA924}']
     function SetProcessorAffinityMask(const aMask: DWORD_PTR): Boolean;
     function SetProcessorAffinityMaskToSystemMask(): Boolean;
-    function SetProcessorAffinityMaskToPCores(): Boolean;
-    function SetProcessorAffinityMaskToECores(): Boolean;
-    function SetProcessorAffinityMaskToSingleProcessor(const aLogicalProcessorId: Byte): Boolean;
   end;
 
   TProcessorAffinityMaskScope = class
@@ -32,17 +29,10 @@ type
   strict protected
     fMaskBefore: DWORD_PTR;
     fHandle: THandle;
-    fSystemMask: NativeUInt;
-    fPCoreMask: NativeUInt;
-    fECoreMask: NativeUInt;
-    fMaxProcessorId: Byte;
     fAction: TAffinityMaskScopeInternalAction;
     function SetProcessorAffinityMask(const aMask: DWORD_PTR): Boolean;
     function SetProcessorAffinityMaskToSystemMask(): Boolean;
     function SetProcessorAffinityMaskIntenal(const aMask: DWORD_PTR): DWORD_PTR; virtual;
-    function SetProcessorAffinityMaskToPCores(): Boolean;
-    function SetProcessorAffinityMaskToECores(): Boolean;
-    function SetProcessorAffinityMaskToSingleProcessor(const aLogicalProcessorId: Byte): Boolean;
   public
     constructor Create(const aHandle: THandle; const aAction: TAffinityMaskScopeInternalAction);
     destructor Destroy; override;
@@ -110,21 +100,6 @@ end;
 function TAffinityMaskScopeInternal.SetProcessorAffinityMaskIntenal(const aMask: DWORD_PTR): DWORD_PTR;
 begin
   Result := fAction(fHandle, aMask);
-end;
-
-function TAffinityMaskScopeInternal.SetProcessorAffinityMaskToECores: Boolean;
-begin
-
-end;
-
-function TAffinityMaskScopeInternal.SetProcessorAffinityMaskToPCores: Boolean;
-begin
-
-end;
-
-function TAffinityMaskScopeInternal.SetProcessorAffinityMaskToSingleProcessor(const aLogicalProcessorId: Byte): Boolean;
-begin
-
 end;
 
 function TAffinityMaskScopeInternal.SetProcessorAffinityMaskToSystemMask: Boolean;
