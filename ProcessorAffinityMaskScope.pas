@@ -8,7 +8,7 @@ uses Winapi.Windows;
 type
   IProcessorAffinityMaskScope = interface
     ['{55C23E04-6773-43D2-8E7B-892311FBA924}']
-    function SetProcessorAffinityMask(const aMask: DWORD_PTR): Boolean;
+    function SetProcessorAffinityMask(const aMask: NativeUInt): Boolean;
     function SetProcessorAffinityMaskToSystemMask(): Boolean;
   end;
 
@@ -23,16 +23,16 @@ implementation
 uses System.SysUtils;
 
 type
-  TAffinityMaskScopeInternalAction = reference to function(const aHandle: THandle; const aMask: DWORD_PTR): DWORD_PTR;
+  TAffinityMaskScopeInternalAction = reference to function(const aHandle: THandle; const aMask: NativeUInt): NativeUInt;
 
   TAffinityMaskScopeInternal = class(TInterfacedObject, IProcessorAffinityMaskScope)
   strict protected
-    fMaskBefore: DWORD_PTR;
+    fMaskBefore: NativeUInt;
     fHandle: THandle;
     fAction: TAffinityMaskScopeInternalAction;
-    function SetProcessorAffinityMask(const aMask: DWORD_PTR): Boolean;
+    function SetProcessorAffinityMask(const aMask: NativeUInt): Boolean;
     function SetProcessorAffinityMaskToSystemMask(): Boolean;
-    function SetProcessorAffinityMaskIntenal(const aMask: DWORD_PTR): DWORD_PTR; virtual;
+    function SetProcessorAffinityMaskIntenal(const aMask: NativeUInt): NativeUInt; virtual;
   public
     constructor Create(const aHandle: THandle; const aAction: TAffinityMaskScopeInternalAction);
     destructor Destroy; override;
@@ -43,7 +43,7 @@ type
 class function TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
 begin
   Result := TAffinityMaskScopeInternal.Create(aProcessHandle,
-    function(const aHandle: THandle; const aMask: DWORD_PTR): DWORD_PTR
+    function(const aHandle: THandle; const aMask: NativeUInt): NativeUInt
     begin
       var lProcessMask: NativeUInt;
       var lSystemMask: NativeUInt;
@@ -60,7 +60,7 @@ end;
 class function TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(const aThreadHandle: THandle): IProcessorAffinityMaskScope;
 begin
   Result := TAffinityMaskScopeInternal.Create(aThreadHandle,
-    function(const aHandle: THandle; const aMask: DWORD_PTR): DWORD_PTR
+    function(const aHandle: THandle; const aMask: NativeUInt): NativeUInt
     begin
       Result := Winapi.Windows.SetThreadAffinityMask(aHandle, aMask);
     end
@@ -83,7 +83,7 @@ begin
   inherited;
 end;
 
-function TAffinityMaskScopeInternal.SetProcessorAffinityMask(const aMask: DWORD_PTR): Boolean;
+function TAffinityMaskScopeInternal.SetProcessorAffinityMask(const aMask: NativeUInt): Boolean;
 begin
   Result := True;
   if aMask = 0 then
@@ -97,7 +97,7 @@ begin
     fMaskBefore := lReturnedAffinityMask;
 end;
 
-function TAffinityMaskScopeInternal.SetProcessorAffinityMaskIntenal(const aMask: DWORD_PTR): DWORD_PTR;
+function TAffinityMaskScopeInternal.SetProcessorAffinityMaskIntenal(const aMask: NativeUInt): NativeUInt;
 begin
   Result := fAction(fHandle, aMask);
 end;

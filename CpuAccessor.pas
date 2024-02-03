@@ -395,7 +395,7 @@ begin
       end;
     end;
 
-    var lLeafHipervisorLast: Cardinal := 0;
+    var lLeafHipervisorLast: Cardinal;
     var lF1_ECX: TBitset32 := [];
     if lCpuIdRecs.TryGetValue(LeafCpuBasicFirst + 1, lCpuIdRec) then
       lF1_ECX := UInt32ToBitset32(lCpuIdRec.ECX);
@@ -534,7 +534,7 @@ begin
   var lMinEfficiencyClass := lCpuSpecs.MinEfficiencyClass;
   for var lLogicalProcessor in lCpuSpecs.LogicalProcessors do
     if lLogicalProcessor.Core.EfficiencyClass = lMinEfficiencyClass then
-      Result := Result or (1 shl lLogicalProcessor.ProcessorId);
+      Result := Result or (NativeUInt(1) shl lLogicalProcessor.ProcessorId);
 end;
 
 class function TCpuAccessor.GetPCoresAffinityMask: NativeUInt;
@@ -544,7 +544,7 @@ begin
   var lMinEfficiencyClass := lCpuSpecs.MinEfficiencyClass;
   for var lLogicalProcessor in lCpuSpecs.LogicalProcessors do
     if lLogicalProcessor.Core.EfficiencyClass > lMinEfficiencyClass then
-      Result := Result or (1 shl lLogicalProcessor.ProcessorId);
+      Result := Result or (NativeUInt(1) shl lLogicalProcessor.ProcessorId);
 end;
 
 class function TCpuAccessor.TryCastProcessToECores(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
@@ -574,7 +574,7 @@ end;
 class function TCpuAccessor.TryCastProcessToProcessor(const aProcessHandle: THandle; const aProcessorId: Byte): IProcessorAffinityMaskScope;
 begin
   Result := nil;
-  var lAffinityMask := 1 shl aProcessorId;
+  var lAffinityMask: NativeUInt := NativeUInt(1) shl aProcessorId;
   if lAffinityMask = 0 then
     Exit;
 
@@ -586,7 +586,7 @@ end;
 class function TCpuAccessor.TryCastThreadToProcessor(const aThreadHandle: THandle; const aProcessorId: Byte): IProcessorAffinityMaskScope;
 begin
   Result := nil;
-  var lAffinityMask := 1 shl aProcessorId;
+  var lAffinityMask: NativeUInt := NativeUInt(1) shl aProcessorId;
   if lAffinityMask = 0 then
     Exit;
 
