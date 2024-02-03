@@ -83,7 +83,7 @@ begin
       var lScope: IProcessorAffinityMaskScope := nil;
       repeat
         Writeln('');
-        Write('Select a processor id [0 - ' + IntToStr(lCpuInfo.LogicalProcessors.Count - 1) + ']');
+        Write('Select a processor id [0 - ' + IntToStr(lCpuInfo.LogicalProcessors.Count - 1) + '] or S for system default');
         if lCpuInfo.IsHybrid then
         begin
           Write(' or E for E-cores or P for P-cores');
@@ -100,7 +100,13 @@ begin
           lSelectedProcessor := 0;
 
         var lProcMessage := '';
-        if lCpuInfo.IsHybrid and SameText('P', lSelectedProcessorStr) then
+        if SameText('S', lSelectedProcessorStr) then
+        begin
+          lScope := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(GetCurrentThread());
+          lScope.SetProcessorAffinityMaskToSystemMask();
+          lProcMessage := 'System default';
+        end
+        else if lCpuInfo.IsHybrid and SameText('P', lSelectedProcessorStr) then
         begin
           lScope := TCpuAccessor.TryCastThreadToPCores(GetCurrentThread());
           lProcMessage := 'P-core processors';
