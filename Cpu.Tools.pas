@@ -81,7 +81,7 @@ begin
       Inc(lBytesRead, lCurrentPtr.Size);
       if lBytesRead >= lReturnLength then
         Break;
-      lCurrentPtr := Pointer(Cardinal(lCurrentPtr) + lCurrentPtr.Size);
+      lCurrentPtr := Pointer(ULONG_PTR(lCurrentPtr) + lCurrentPtr.Size);
     end;
   finally
     FreeMemory(lBuffer);
@@ -124,7 +124,7 @@ begin
       Inc(lBytesRead, lCurrentPtr.Size);
       if lBytesRead >= lReturnLength then
         Break;
-      lCurrentPtr := Pointer(Cardinal(lCurrentPtr) + lCurrentPtr.Size);
+      lCurrentPtr := Pointer(ULONG_PTR(lCurrentPtr) + lCurrentPtr.Size);
     end;
   finally
     FreeMemory(lBuffer);
@@ -206,7 +206,7 @@ begin
       Inc(lBytesRead, lPROCESSOR_POWER_INFORMATIONSize);
       if lBytesRead >= lOutputBufferLength then
         Break;
-      lProcessorPowerInfo := Pointer(Cardinal(lProcessorPowerInfo) + lPROCESSOR_POWER_INFORMATIONSize);
+      lProcessorPowerInfo := Pointer(ULONG_PTR(lProcessorPowerInfo) + lPROCESSOR_POWER_INFORMATIONSize);
     end;
   finally
     FreeMemory(lBuffer);
