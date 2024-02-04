@@ -88,10 +88,11 @@ begin
     else if cache.Level = 3 then
       Inc(lCacheL3Total, cache.Size);
 
-    Writeln('');
-    Writeln('Cache #' + IntToStr(cache.CacheId));
-    Writeln('   Level: ' + IntToStr(cache.Level));
-    Writeln('   Type: ' + TCpuAccessor.CacheTypeToStr(cache.Type_));
+    Writeln;
+    Write('Cache L' + IntToStr(cache.Level));
+    if cache.Type_ > 0 then
+      Write(' ' + TCpuAccessor.CacheTypeToStr(cache.Type_));
+    Writeln;
     Writeln('   Size: ' + MemorySizeToStr(cache.Size, TMemoryUnit.Bytes, lTargetMemUnit));
     Writeln('   Lines: ' + UIntToStr(cache.LineCount));
     for var logProcessor in cache.LogicalProcessors do
