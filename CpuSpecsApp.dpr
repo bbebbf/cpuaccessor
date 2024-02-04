@@ -70,6 +70,41 @@ begin
       Writeln;
     end;
   end;
+
+  var lCacheL1Total: Cardinal := 0;
+  var lCacheL2Total: Cardinal := 0;
+  var lCacheL3Total: Cardinal := 0;
+  Writeln;
+  Writeln('CPU caches:');
+  for var cache in aCpuSpecification.Caches do
+  begin
+    var lTargetMemUnit := TMemoryUnit.Kilobytes;
+    if cache.Level > 1 then
+      lTargetMemUnit := TMemoryUnit.Megabytes;
+    if cache.Level = 1 then
+      Inc(lCacheL1Total, cache.Size)
+    else if cache.Level = 2 then
+      Inc(lCacheL2Total, cache.Size)
+    else if cache.Level = 3 then
+      Inc(lCacheL3Total, cache.Size);
+
+    Writeln('');
+    Writeln('Cache #' + IntToStr(cache.CacheId));
+    Writeln('   Level: ' + IntToStr(cache.Level));
+    Writeln('   Type: ' + TCpuAccessor.CacheTypeToStr(cache.Type_));
+    Writeln('   Size: ' + MemorySizeToStr(cache.Size, TMemoryUnit.Bytes, lTargetMemUnit));
+    Writeln('   Lines: ' + UIntToStr(cache.LineCount));
+    for var logProcessor in cache.LogicalProcessors do
+    begin
+      Write('   -> Logical processor #' + IntToStr(logProcessor.ProcessorId));
+      Writeln;
+    end;
+  end;
+  Writeln('');
+  Writeln('Total L1 Cache: ' + MemorySizeToStr(lCacheL1Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
+  Writeln('Total L2 Cache: ' + MemorySizeToStr(lCacheL2Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
+  Writeln('Total L3 Cache: ' + MemorySizeToStr(lCacheL3Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
+
   Writeln('');
   Writeln('Processor ids [0 - ' + IntToStr(aCpuSpecification.LogicalProcessors.Count - 1) + '] found.');
 end;

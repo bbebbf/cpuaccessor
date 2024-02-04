@@ -2,28 +2,31 @@ unit Cpu.Tools;
 
 interface
 
-uses Cpu.Types;
+uses Winapi.Windows, Cpu.Types;
 
 type
   TCpuTools = class
+  strict private
+    class function EnumGetLogicalProcessorInformationEx(const aRelation: LOGICAL_PROCESSOR_RELATIONSHIP;
+      const aEnumeratorProc: TProcessorInfoExEnumeratorProc): Boolean;
   public
     class function GetSystemCpuSetInformationFunc: TGetSystemCpuSetInformationFunc;
     class function GetLogicalProcessorInformationExFunc: TGetLogicalProcessorInformationExFunc;
     class function GetCallNtPowerInformationFunc: TCallNtPowerInformationFunc;
     class function EnumGetSystemCpuSetInformation(const aEnumeratorProc: TCpuSetInformationEnumeratorProc;
       const aProcessHandle: THandle = 0): Boolean;
-    class function EnumGetLogicalProcessorInformationEx(const aEnumeratorProc: TCpuSetInformationEnumeratorProc): Boolean;
+    class function EnumGetLogicalProcessorInformationExCores(const aEnumeratorProc: TCpuSetInformationEnumeratorProc): Boolean;
+    class function EnumGetLogicalProcessorInformationExCaches(const aEnumeratorProc: TCacheEnumeratorProc): Boolean;
     class function ReadClockSpeedsFromCallNtPowerInformation(const aLogicalProcessorCount: Integer;
       const aEnumeratorProc: TProcessorPowerEnumeratorProc): Boolean;
   end;
 
 implementation
 
-uses Winapi.Windows;
-
 { TCpuTools }
 
-class function TCpuTools.EnumGetLogicalProcessorInformationEx(const aEnumeratorProc: TCpuSetInformationEnumeratorProc): Boolean;
+class function TCpuTools.EnumGetLogicalProcessorInformationEx(const aRelation: LOGICAL_PROCESSOR_RELATIONSHIP;
+  const aEnumeratorProc: TProcessorInfoExEnumeratorProc): Boolean;
 begin
   Result := False;
   var lBuffer: Pointer := nil;
@@ -35,19 +38,16 @@ begin
     var lReturnLength: DWORD := 0;
     var lInfoFound := False;
 
-    if not lGetLogicalProcessorInformationExFunc.Invoke(RelationProcessorCore, lBuffer, lReturnLength) then
+    if not lGetLogicalProcessorInformationExFunc.Invoke(aRelation, lBuffer, lReturnLength) then
     begin
       if GetLastError() = ERROR_INSUFFICIENT_BUFFER then
       begin
         lBuffer := GetMemory(lReturnLength);
-        lInfoFound := lGetLogicalProcessorInformationExFunc.Invoke(RelationProcessorCore, lBuffer, lReturnLength);
+        lInfoFound := lGetLogicalProcessorInformationExFunc.Invoke(aRelation, lBuffer, lReturnLength);
       end;
     end;
     if (not lInfoFound) or (lReturnLength = 0) then
       Exit;
-
-    var lCurrentCoreIndex: Integer := 0;
-    var lCurrentLogicalProcessorIndex: Integer := 0;
 
     Result := True;
     var lCurrentPtr: PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX := lBuffer;
@@ -55,27 +55,9 @@ begin
 
     while True do
     begin
-      if lCurrentPtr.Relationship = RelationProcessorCore then
+      if lCurrentPtr.Relationship = aRelation then
       begin
-        var lCurrentLogicalProcessorCount: Integer := 0;
-        var lEfficiencyClass: Byte := lCurrentPtr.Processor.Reserved[0];
-        for var i := 0 to (SizeOf(lCurrentPtr.Processor.GroupMask[0].Mask) * 8) - 1 do
-        begin
-          var lTestbit: KAFFINITY := KAFFINITY(1) shl i;
-          // If lLogicalProcessor is not set in bit mask then continue.
-          if lCurrentPtr.Processor.GroupMask[0].Mask and lTestbit <> lTestbit then
-            Continue;
-
-          var lCpuSetInfoRec: CPUACCESSOR_SYSTEM_CPU_SET_INFORMATION := default(CPUACCESSOR_SYSTEM_CPU_SET_INFORMATION);
-          lCpuSetInfoRec.CoreIndex := lCurrentCoreIndex;
-          lCpuSetInfoRec.LogicalProcessorIndex := lCurrentLogicalProcessorIndex;
-          lCpuSetInfoRec.EfficiencyClass := lEfficiencyClass;
-          aEnumeratorProc(lCpuSetInfoRec);
-
-          Inc(lCurrentLogicalProcessorIndex);
-          Inc(lCurrentLogicalProcessorCount);
-        end;
-        Inc(lCurrentCoreIndex, lCurrentLogicalProcessorCount);
+        aEnumeratorProc(lCurrentPtr^);
       end;
 
       Inc(lBytesRead, lCurrentPtr.Size);
@@ -87,6 +69,60 @@ begin
     FreeMemory(lBuffer);
     FreeLibrary(lGetLogicalProcessorInformationExFunc.Kernel32Handle);
   end;
+end;
+
+class function TCpuTools.EnumGetLogicalProcessorInformationExCaches(const aEnumeratorProc: TCacheEnumeratorProc): Boolean;
+begin
+  var lCurrentCacheIndex: Word := 0;
+  Result := EnumGetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationCache,
+    procedure(const aProcessorInfoExRec: SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)
+    begin
+      for var i := 0 to (SizeOf(aProcessorInfoExRec.Cache.GroupMask.Mask) * 8) - 1 do
+      begin
+        var lTestbit: KAFFINITY := KAFFINITY(1) shl i;
+        // If lLogicalProcessor is not set in bit mask then continue.
+        if aProcessorInfoExRec.Cache.GroupMask.Mask and lTestbit <> lTestbit then
+          Continue;
+
+        var lCacheInfoRec: CPUACCESSOR_CACHE_INFORMATION := default(CPUACCESSOR_CACHE_INFORMATION);
+        lCacheInfoRec.CacheIndex := lCurrentCacheIndex;
+        lCacheInfoRec.LogicalProcessorIndex := i;
+        lCacheInfoRec.CacheLevel := aProcessorInfoExRec.Cache.Level;
+        lCacheInfoRec.Type_ := aProcessorInfoExRec.Cache._Type;
+        lCacheInfoRec.CacheSize := aProcessorInfoExRec.Cache.CacheSize;
+        lCacheInfoRec.LineSize := aProcessorInfoExRec.Cache.LineSize;
+        aEnumeratorProc(lCacheInfoRec);
+      end;
+      Inc(lCurrentCacheIndex);
+    end
+  );
+end;
+
+class function TCpuTools.EnumGetLogicalProcessorInformationExCores(const aEnumeratorProc: TCpuSetInformationEnumeratorProc): Boolean;
+begin
+  var lCurrentCoreIndex: Integer := 0;
+  Result := EnumGetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationProcessorCore,
+    procedure(const aProcessorInfoExRec: SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)
+    begin
+      var lProcessorsOnCoreCount: Integer := 0;
+      var lEfficiencyClass: Byte := aProcessorInfoExRec.Processor.Reserved[0];
+      for var i := 0 to (SizeOf(aProcessorInfoExRec.Processor.GroupMask[0].Mask) * 8) - 1 do
+      begin
+        var lTestbit: KAFFINITY := KAFFINITY(1) shl i;
+        // If lLogicalProcessor is not set in bit mask then continue.
+        if aProcessorInfoExRec.Processor.GroupMask[0].Mask and lTestbit <> lTestbit then
+          Continue;
+
+        var lCpuSetInfoRec: CPUACCESSOR_SYSTEM_CPU_SET_INFORMATION := default(CPUACCESSOR_SYSTEM_CPU_SET_INFORMATION);
+        lCpuSetInfoRec.CoreIndex := lCurrentCoreIndex;
+        lCpuSetInfoRec.LogicalProcessorIndex := i;
+        lCpuSetInfoRec.EfficiencyClass := lEfficiencyClass;
+        aEnumeratorProc(lCpuSetInfoRec);
+        Inc(lProcessorsOnCoreCount);
+      end;
+      Inc(lCurrentCoreIndex, lProcessorsOnCoreCount);
+    end
+  );
 end;
 
 class function TCpuTools.EnumGetSystemCpuSetInformation(const aEnumeratorProc: TCpuSetInformationEnumeratorProc;

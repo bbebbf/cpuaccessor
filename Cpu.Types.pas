@@ -2,9 +2,11 @@ unit Cpu.Types;
 
 interface
 
-uses Winapi.Windows;
+uses System.Math, Winapi.Windows;
 
 type
+  TProcessorInfoExEnumeratorProc = reference to procedure(const aProcessorInfoExRec: SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX);
+
   TCpuSetInfoSource = (SourceUnknown, SourceGetSystemCpuSetInformation, SourceGetLogicalProcessorInformationEx);
 
   TCpuVendor = (VendorUnknown, Intel, AMD, Cyrix, VIA, Transmeta, SIS, UMC, RISE,
@@ -44,6 +46,17 @@ type
 
   TProcessorPowerEnumeratorProc = reference to procedure(const aProcessorPowerRec: CPUACCESSOR_PROCESSOR_POWER_INFORMATION);
 
+  CPUACCESSOR_CACHE_INFORMATION = record
+    CacheIndex: Word;
+    LogicalProcessorIndex: Byte;
+    CacheLevel: Byte;
+    CacheSize: DWORD;
+    LineSize: WORD;
+    Type_: PROCESSOR_CACHE_TYPE;
+  end;
+
+  TCacheEnumeratorProc = reference to procedure(const aCacheRec: CPUACCESSOR_CACHE_INFORMATION);
+
   TGetSystemCpuSetInformation = function(const aInformation: PCPUACCESSOR_SYSTEM_CPU_SET_INFORMATION;
     const BufferLength: ULONG; var aReturnedLength: ULONG; const aProcess: THandle; const aFlags: ULONG): BOOL; stdcall;
 
@@ -74,6 +87,8 @@ type
     Invoke: TCallNtPowerInformation;
   end;
 
+  TMemoryUnit = (Bytes, Kilobytes, Megabytes, Terrabytes);
+
 const
   CpuVendorStrings: Array[TCpuVendor] of string =
     (
@@ -97,9 +112,22 @@ const
       ' QNXQVMBSQG '
     );
 
+  MemoryUnitStrings: Array[TMemoryUnit] of string =
+    (
+      'Bytes',
+      'KB',
+      'MB',
+      'TB'
+    );
+
 function UInt32ToBitset32(const aValue: UInt32): TBitset32;
 
+function MemorySizeToStr(const aValue: UInt64; const aSourceUnit, aTargetUnit: TMemoryUnit;
+  const aDigit: TRoundToRange = 0): string;
+
 implementation
+
+uses System.SysUtils, System.StrUtils;
 
 function UInt32ToBitset32(const aValue: UInt32): TBitset32;
 begin
@@ -115,6 +143,27 @@ begin
     Inc(i);
     lTestbit := lTestbit * 2;
   end;
+end;
+
+function MemorySizeToStr(const aValue: UInt64; const aSourceUnit, aTargetUnit: TMemoryUnit;
+  const aDigit: TRoundToRange): string;
+begin
+  var lTranslatedValue: Extended := aValue;
+  if aSourceUnit < aTargetUnit then
+  begin
+    for var i := Succ(aSourceUnit) to aTargetUnit do
+      lTranslatedValue := lTranslatedValue / 1024;
+  end
+  else if aTargetUnit < aSourceUnit then
+  begin
+    for var i := Succ(aTargetUnit) to aSourceUnit do
+      lTranslatedValue := lTranslatedValue * 1024;
+  end;
+  lTranslatedValue := System.Math.SimpleRoundTo(lTranslatedValue, aDigit);
+  var lDigitFormat := '';
+  if aDigit < 0 then
+    lDigitFormat := '.' + DupeString('0', Abs(aDigit));
+  Result := FormatFloat('#0' + lDigitFormat, lTranslatedValue) + ' ' + MemoryUnitStrings[aTargetUnit];
 end;
 
 end.

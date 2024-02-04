@@ -38,6 +38,26 @@ type
     property LogicalProcessors: TList<TCpuLogicalProcessor> read fLogicalProcessors;
   end;
 
+  TCpuCache = class
+  strict private
+    fCacheId: Word;
+  private
+    fLevel: Byte;
+    fType: Byte;
+    fSize: Cardinal;
+    fLineCount: Cardinal;
+    fLogicalProcessors: TList<TCpuLogicalProcessor>;
+  public
+    constructor Create(const aCacheId: Word);
+    destructor Destroy; override;
+    property CacheId: Word read fCacheId;
+    property Level: Byte read fLevel;
+    property Type_: Byte read fType;
+    property Size: Cardinal read fSize;
+    property LineCount: Cardinal read fLineCount;
+    property LogicalProcessors: TList<TCpuLogicalProcessor> read fLogicalProcessors;
+  end;
+
   TCpuSpecification = class
   strict private
     const
@@ -49,6 +69,7 @@ type
       fCpuSetInfoSource: TCpuSetInfoSource;
       fCores: TList<TCpuCore>;
       fLogicalProcessors: TList<TCpuLogicalProcessor>;
+      fCaches: TList<TCpuCache>;
       fCpuIdRead: Boolean;
       fVendor: TCpuVendor;
       fVendorString: string;
@@ -58,6 +79,7 @@ type
       fHypervisorString: string;
       fHypervisorVersion: string;
     procedure ReadCpu;
+    procedure ReadCaches;
     procedure ReadClockSpeeds;
     procedure PopulateCpuSets(const aCpuSetInfoRec: CPUACCESSOR_SYSTEM_CPU_SET_INFORMATION);
     function GetCores: TList<TCpuCore>;
@@ -72,8 +94,10 @@ type
     function GetIsHypervisorPresent: Boolean;
     function GetHypervisorString: string;
     function GetPhysicalCore(const aCoreId: Byte): TCpuCore;
+    function GetCacheEntry(const aCacheId: Byte): TCpuCache;
   private
     function GetHypervisorVersion: string;
+    function GetCaches: TList<TCpuCache>;
   public
     destructor Destroy; override;
     function FindLogicalProcessor(const aProcessorId: Byte): TCpuLogicalProcessor;
@@ -91,6 +115,7 @@ type
     property MinEfficiencyClass: Byte read GetMinEfficiencyClass;
     property Cores: TList<TCpuCore> read GetCores;
     property LogicalProcessors: TList<TCpuLogicalProcessor> read GetLogicalProcessors;
+    property Caches: TList<TCpuCache> read GetCaches;
   end;
 
   TCpuAccessor = class
@@ -114,6 +139,7 @@ type
     /// </returns>
     class function GetCpuSpecification(const aRefreshData: Boolean = False): TCpuSpecification;
     class function CpuSetInfoSourceToStr(const aCpuSetInfoSource: TCpuSetInfoSource): string;
+    class function CacheTypeToStr(const aCacheType: Byte): string;
     /// <summary>
     ///   Tries to set the affinity mask of the E-core processors to a given process.
     /// </summary>
@@ -229,11 +255,27 @@ begin
   fProcessorId := aProcessorId;
 end;
 
+{ TCpuCache }
+
+constructor TCpuCache.Create(const aCacheId: Word);
+begin
+  inherited Create;
+  fLogicalProcessors := TList<TCpuLogicalProcessor>.Create;
+  fCacheId := aCacheId;
+end;
+
+destructor TCpuCache.Destroy;
+begin
+  fLogicalProcessors.Free;
+  inherited;
+end;
+
 { TCpuSpecification }
 
 destructor TCpuSpecification.Destroy;
 begin
   fCores.Free;
+  fCaches.Free;
   fLogicalProcessors.Free;
   inherited;
 end;
@@ -246,6 +288,22 @@ begin
 
   Result := TCpuCore.Create(aCoreId);
   fCores.Add(Result);
+end;
+
+function TCpuSpecification.GetCacheEntry(const aCacheId: Byte): TCpuCache;
+begin
+  for var entry in fCaches do
+    if entry.CacheId = aCacheId then
+      Exit(entry);
+
+  Result := TCpuCache.Create(aCacheId);
+  fCaches.Add(Result);
+end;
+
+function TCpuSpecification.GetCaches: TList<TCpuCache>;
+begin
+  ReadCpu;
+  Result := fCaches;
 end;
 
 function TCpuSpecification.GetCores: TList<TCpuCore>;
@@ -356,14 +414,18 @@ begin
   fCpuIdRead := True;
   fLogicalProcessors.Free;
   fCores.Free;
+  fCaches.Free;
   fLogicalProcessors := TObjectList<TCpuLogicalProcessor>.Create;
   fCores := TObjectList<TCpuCore>.Create;
+  fCaches := TObjectList<TCpuCache>.Create;
   if TCpuTools.EnumGetSystemCpuSetInformation(PopulateCpuSets) then
     fCpuSetInfoSource := TCpuSetInfoSource.SourceGetSystemCpuSetInformation
-  else if TCpuTools.EnumGetLogicalProcessorInformationEx(PopulateCpuSets) then
+  else if TCpuTools.EnumGetLogicalProcessorInformationExCores(PopulateCpuSets) then
     fCpuSetInfoSource := TCpuSetInfoSource.SourceGetLogicalProcessorInformationEx
   else
     fCpuSetInfoSource := TCpuSetInfoSource.SourceUnknown;
+
+  ReadCaches;
 
   var lCpuIdRec: TCPUIDRec;
   var lCpuIdRecs: TDictionary<UInt32, TCPUIDRec> := nil;
@@ -476,6 +538,27 @@ begin
     lCpuIdRecs.Free;
   end;
   {$WARN SYMBOL_PLATFORM ON}
+end;
+
+procedure TCpuSpecification.ReadCaches;
+begin
+  TCpuTools.EnumGetLogicalProcessorInformationExCaches(
+    procedure(const aCacheRec: CPUACCESSOR_CACHE_INFORMATION)
+    begin
+      var lCache := GetCacheEntry(aCacheRec.CacheIndex);
+      lCache.fLevel := aCacheRec.CacheLevel;
+      lCache.fType := Ord(aCacheRec.Type_);
+      lCache.fSize := aCacheRec.CacheSize;
+      lCache.fLineCount := aCacheRec.CacheSize div aCacheRec.LineSize;
+      for var lLogicalProcessor in fLogicalProcessors do
+      begin
+        if lLogicalProcessor.ProcessorId = aCacheRec.LogicalProcessorIndex then
+        begin
+          lCache.LogicalProcessors.Add(lLogicalProcessor);
+          Break;
+        end;
+      end;
+    end)
 end;
 
 procedure TCpuSpecification.ReadClockSpeeds;
@@ -627,6 +710,19 @@ begin
       Exit('GetSystemCpuSetInformation');
     TCpuSetInfoSource.SourceGetLogicalProcessorInformationEx:
       Exit('GetLogicalProcessorInformationEx');
+  end;
+end;
+
+class function TCpuAccessor.CacheTypeToStr(const aCacheType: Byte): string;
+begin
+  Result := 'Undefined';
+  case PROCESSOR_CACHE_TYPE(aCacheType) of
+    PROCESSOR_CACHE_TYPE.CacheInstruction:
+      Exit('Instruction');
+    PROCESSOR_CACHE_TYPE.CacheData:
+      Exit('Data');
+    PROCESSOR_CACHE_TYPE.CacheTrace:
+      Exit('Trace');
   end;
 end;
 
