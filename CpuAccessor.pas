@@ -229,7 +229,7 @@ type
 
 implementation
 
-uses System.SysUtils, System.Classes, Winapi.Windows, Cpu.Tools;
+uses System.SysUtils, System.Classes, System.Generics.Defaults, Winapi.Windows, Cpu.Tools;
 
 { TCpuCore }
 
@@ -558,7 +558,26 @@ begin
           Break;
         end;
       end;
-    end)
+    end);
+  fCaches.Sort(TComparer<TCpuCache>.Construct(
+      function (const aLeft, aRight: TCpuCache): Integer
+      begin
+        Result := 0;
+        if aLeft.Level < aRight.Level then
+          Exit(-1);
+        if aLeft.Level > aRight.Level then
+          Exit(1);
+        if aLeft.CacheId < aRight.CacheId then
+          Exit(-1);
+        if aLeft.CacheId > aRight.CacheId then
+          Exit(1);
+        if aLeft.Type_ < aRight.Type_ then
+          Exit(-1);
+        if aLeft.Type_ > aRight.Type_ then
+          Exit(1);
+      end
+    )
+  );
 end;
 
 procedure TCpuSpecification.ReadClockSpeeds;
