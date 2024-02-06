@@ -87,7 +87,7 @@ type
     Invoke: TCallNtPowerInformation;
   end;
 
-  TMemoryUnit = (Bytes, Kilobytes, Megabytes, Terrabytes);
+  TMemoryUnit = (Bytes, Kilobytes, Megabytes, Gigabytes, Terrabytes);
 
 const
   CpuVendorStrings: Array[TCpuVendor] of string =
@@ -117,6 +117,7 @@ const
       'Bytes',
       'KB',
       'MB',
+      'GB',
       'TB'
     );
 
