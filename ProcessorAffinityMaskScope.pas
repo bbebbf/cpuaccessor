@@ -10,12 +10,15 @@ type
     ['{55C23E04-6773-43D2-8E7B-892311FBA924}']
     function SetProcessorAffinityMask(const aMask: NativeUInt): Boolean;
     function SetProcessorAffinityMaskToSystemMask(): Boolean;
+    procedure RestorePreviousMask;
   end;
 
   TProcessorAffinityMaskScope = class
   public
-    class function CreateProcessAffinityMaskScope(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
-    class function CreateThreadAffinityMaskScope(const aThreadHandle: THandle): IProcessorAffinityMaskScope;
+    class function CreateProcessAffinityMaskScope(const aProcessHandle: THandle;
+      const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
+    class function CreateThreadAffinityMaskScope(const aThreadHandle: THandle;
+      const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
   end;
 
 implementation
@@ -28,21 +31,25 @@ type
   TAffinityMaskScopeInternal = class(TInterfacedObject, IProcessorAffinityMaskScope)
   strict protected
     fMaskBefore: NativeUInt;
+    fRestoreOnDestroy: Boolean;
     fHandle: THandle;
     fAction: TAffinityMaskScopeInternalAction;
     function SetProcessorAffinityMask(const aMask: NativeUInt): Boolean;
     function SetProcessorAffinityMaskToSystemMask(): Boolean;
     function SetProcessorAffinityMaskIntenal(const aMask: NativeUInt): NativeUInt; virtual;
+    procedure RestorePreviousMask;
   public
-    constructor Create(const aHandle: THandle; const aAction: TAffinityMaskScopeInternalAction);
+    constructor Create(const aHandle: THandle; const aRestoreOnDestroy: Boolean;
+      const aAction: TAffinityMaskScopeInternalAction);
     destructor Destroy; override;
   end;
 
 { TProcessorAffinityMaskScope }
 
-class function TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
+class function TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(const aProcessHandle: THandle;
+  const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
-  Result := TAffinityMaskScopeInternal.Create(aProcessHandle,
+  Result := TAffinityMaskScopeInternal.Create(aProcessHandle, aRestoreOnDestroy,
     function(const aHandle: THandle; const aMask: NativeUInt): NativeUInt
     begin
       var lProcessMask: NativeUInt;
@@ -57,9 +64,10 @@ begin
   );
 end;
 
-class function TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(const aThreadHandle: THandle): IProcessorAffinityMaskScope;
+class function TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(const aThreadHandle: THandle;
+  const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
-  Result := TAffinityMaskScopeInternal.Create(aThreadHandle,
+  Result := TAffinityMaskScopeInternal.Create(aThreadHandle, aRestoreOnDestroy,
     function(const aHandle: THandle; const aMask: NativeUInt): NativeUInt
     begin
       Result := Winapi.Windows.SetThreadAffinityMask(aHandle, aMask);
@@ -69,18 +77,26 @@ end;
 
 { TAffinityMaskScopeInternal }
 
-constructor TAffinityMaskScopeInternal.Create(const aHandle: THandle; const aAction: TAffinityMaskScopeInternalAction);
+constructor TAffinityMaskScopeInternal.Create(const aHandle: THandle; const aRestoreOnDestroy: Boolean;
+  const aAction: TAffinityMaskScopeInternalAction);
 begin
   inherited Create;
   fHandle := aHandle;
+  fRestoreOnDestroy := aRestoreOnDestroy;
   fAction := aAction;
 end;
 
 destructor TAffinityMaskScopeInternal.Destroy;
 begin
+  if fRestoreOnDestroy then
+    RestorePreviousMask;
+  inherited;
+end;
+
+procedure TAffinityMaskScopeInternal.RestorePreviousMask;
+begin
   if fMaskBefore > 0 then
     SetProcessorAffinityMaskIntenal(fMaskBefore);
-  inherited;
 end;
 
 function TAffinityMaskScopeInternal.SetProcessorAffinityMask(const aMask: NativeUInt): Boolean;

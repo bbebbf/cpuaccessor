@@ -42,9 +42,10 @@ end;
 
 procedure SortingDemo(const aCpuSpecification: tCpuSpecification);
 begin
+  Writeln('Bubble sorting');
+  Writeln('--------------');
   var lScope: IProcessorAffinityMaskScope := nil;
   repeat
-    Writeln('');
     Write('Select a processor id [0 - ' + IntToStr(aCpuSpecification.LogicalProcessors.Count - 1) + '] or S for system default');
     if aCpuSpecification.IsHybrid then
     begin
@@ -64,23 +65,23 @@ begin
     var lProcMessage := '';
     if SameText('S', lSelectedProcessorStr) then
     begin
-      lScope := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(GetCurrentThread());
+      lScope := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(GetCurrentProcess());
       lScope.SetProcessorAffinityMaskToSystemMask();
       lProcMessage := 'System default';
     end
     else if aCpuSpecification.IsHybrid and SameText('P', lSelectedProcessorStr) then
     begin
-      lScope := TCpuAccessor.TryCastThreadToPCores(GetCurrentThread());
+      lScope := TCpuAccessor.TryCastProcessToPCores(GetCurrentProcess());
       lProcMessage := 'P-core processors';
     end
     else if aCpuSpecification.IsHybrid and SameText('E', lSelectedProcessorStr) then
     begin
-      lScope := TCpuAccessor.TryCastThreadToECores(GetCurrentThread());
+      lScope := TCpuAccessor.TryCastProcessToECores(GetCurrentProcess());
       lProcMessage := 'E-core processors';
     end
     else
     begin
-      lScope := TCpuAccessor.TryCastThreadToProcessor(GetCurrentThread(), lSelectedProcessor);
+      lScope := TCpuAccessor.TryCastProcessToProcessor(GetCurrentProcess(), lSelectedProcessor);
       lProcMessage := 'processor id ' + IntToStr(lSelectedProcessor);
     end;
     if Assigned(lScope) then
@@ -120,7 +121,7 @@ begin
   var lCacheL2Total: Cardinal := 0;
   var lCacheL3Total: Cardinal := 0;
   Writeln('CPU Specification');
-  Writeln('=================');
+  Writeln('-----------------');
   Writeln('Vendor: "' + aCpuSpecification.VendorString + '"');
   Writeln('Brand: "' + aCpuSpecification.BrandString + '"');
   WriteLn('Is Hypervisor present: ' + BoolToStr(aCpuSpecification.IsHypervisorPresent, True));
@@ -181,6 +182,112 @@ begin
   Writeln('');
 end;
 
+procedure PrintQueryProcessState(const aState: TCpuAccessorQueryProcessState);
+begin
+  case aState of
+    TCpuAccessorQueryProcessState.Successful:
+    begin
+      Writeln('Successfully queried.');
+    end;
+    TCpuAccessorQueryProcessState.NotFound:
+    begin
+      Writeln('Process not found.');
+    end;
+    TCpuAccessorQueryProcessState.AccessDenied:
+    begin
+      Writeln('Access to process denied.');
+    end;
+    TCpuAccessorQueryProcessState.Failed:
+    begin
+      Writeln('Query failed.');
+    end;
+  end;
+end;
+
+procedure CastProcessIdToProcessor(const aCpuSpecification: tCpuSpecification);
+begin
+  Writeln('Cast process to processor');
+  Writeln('-------------------------');
+  Write('Process id: ');
+  var lProcessIdStr: string;
+  Readln(lProcessIdStr);
+  var lProcessId: Cardinal;
+  if not TryStrToUInt(lProcessIdStr, lProcessId) then
+  begin
+    Writeln('Invalid process id.');
+    Exit;
+  end;
+
+  Write('Select a processor id [0 - ' + IntToStr(aCpuSpecification.LogicalProcessors.Count - 1) + '] or S for system default');
+  if aCpuSpecification.IsHybrid then
+  begin
+    Write(' or E for E-cores or P for P-cores');
+  end;
+  Write(': ');
+
+  var lSelectedProcessorStr: string;
+  Readln(lSelectedProcessorStr);
+
+  var lSelectedProcessor: Cardinal;
+  if not TryStrToUInt(lSelectedProcessorStr, lSelectedProcessor) then
+    lSelectedProcessor := 0;
+  if lSelectedProcessor > 255 then
+    lSelectedProcessor := 0;
+
+  var lResult: TCpuAccessorCastProcessToProcessorsResult;
+  if SameText('S', lSelectedProcessorStr) then
+  begin
+    lResult := TCpuAccessor.TryCastProcessIdToSystemDefault(lProcessId, False);
+  end
+  else if aCpuSpecification.IsHybrid and SameText('P', lSelectedProcessorStr) then
+  begin
+    lResult := TCpuAccessor.TryCastProcessIdToPCores(lProcessId, False);
+  end
+  else if aCpuSpecification.IsHybrid and SameText('E', lSelectedProcessorStr) then
+  begin
+    lResult := TCpuAccessor.TryCastProcessIdToECores(lProcessId, False);
+  end
+  else
+  begin
+    lResult := TCpuAccessor.TryCastProcessIdToProcessor(lProcessId, lSelectedProcessor, False);
+  end;
+  PrintQueryProcessState(lResult.State);
+  Writeln;
+end;
+
+procedure QueryAffinityMask();
+begin
+  Writeln('Query affinity mask');
+  Writeln('-------------------');
+  Write('Process id: ');
+  var lProcessIdStr: string;
+  Readln(lProcessIdStr);
+  var lProcessId: Cardinal;
+  if not TryStrToUInt(lProcessIdStr, lProcessId) then
+  begin
+    Writeln('Invalid process id.');
+    Exit;
+  end;
+
+  var lResult := TCpuAccessor.GetProcessorsForProcess(lProcessId);
+  PrintQueryProcessState(lResult.State);
+  if lResult.State = TCpuAccessorQueryProcessState.Successful then
+  begin
+    Write('Processors: ');
+    for var i := Low(lResult.Processors) to High(lResult.Processors) do
+    begin
+      if i = Low(lResult.Processors) then
+        Write('[')
+      else
+        Write(', ');
+      Write(IntToStr(lResult.Processors[i].ProcessorId));
+    end;
+    Write(']');
+  end;
+  Writeln;
+  Writeln;
+end;
+
 begin
   try
     var lCpuInfo := TCpuAccessor.GetCpuSpecification;
@@ -189,9 +296,13 @@ begin
       Writeln('Cpu accessor');
       Writeln('============');
       Writeln;
+      Writeln('Own process id: ' + UIntToStr(GetCurrentProcessId));
+      Writeln;
       Writeln('1) Show CPU specs');
       Writeln('2) Sorting demo');
-      Writeln('q) quit');
+      Writeln('3) Query affinity mask for process id');
+      Writeln('4) Cast process id to processor');
+      Writeln('Q) Quit');
       Writeln;
       Write('Please select: ');
       var lMenuCode: string;
@@ -202,7 +313,11 @@ begin
       else if SameText(lMenuCode, '1') then
         ShowCpuSpecs(lCpuInfo)
       else if SameText(lMenuCode, '2') then
-        SortingDemo(lCpuInfo);
+        SortingDemo(lCpuInfo)
+      else if SameText(lMenuCode, '3') then
+        QueryAffinityMask()
+      else if SameText(lMenuCode, '4') then
+        CastProcessIdToProcessor(lCpuInfo);
     end;
   except
     on E: Exception do

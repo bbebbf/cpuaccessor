@@ -134,6 +134,18 @@ type
     property Caches: TList<TCpuCache> read GetCaches;
   end;
 
+  TCpuAccessorQueryProcessState = (NotFound, AccessDenied, Successful, Failed);
+
+  TCpuAccessorCastProcessToProcessorsResult = record
+    State: TCpuAccessorQueryProcessState;
+    Scope: IProcessorAffinityMaskScope;
+  end;
+
+  TCpuAccessorGetProcessorsForProcessResult = record
+    State: TCpuAccessorQueryProcessState;
+    Processors: TArray<TCpuLogicalProcessor>;
+  end;
+
   TCpuAccessor = class
   strict private
     class var fCpuSpecification: TCpuSpecification;
@@ -168,7 +180,7 @@ type
     ///   When the IProcessorAffinityMaskScope instance becomes NIL again
     ///   the process will return to its previous affinity mask.
     /// </returns>
-    class function TryCastProcessToECores(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
+    class function TryCastProcessToECores(const aProcessHandle: THandle; const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
     /// <summary>
     ///   Tries to set the affinity mask of the P-core processors to a given process.
     /// </summary>
@@ -181,7 +193,7 @@ type
     ///   When the IProcessorAffinityMaskScope instance becomes NIL again
     ///   the process will return to its previous affinity mask.
     /// </returns>
-    class function TryCastProcessToPCores(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
+    class function TryCastProcessToPCores(const aProcessHandle: THandle; const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
     /// <summary>
     ///   Tries to set the affinity mask of the E-core processors to a given thread.
     /// </summary>
@@ -194,7 +206,7 @@ type
     ///   When the IProcessorAffinityMaskScope instance becomes NIL again
     ///   the thread will return to its previous affinity mask.
     /// </returns>
-    class function TryCastThreadToECores(const aThreadHandle: THandle): IProcessorAffinityMaskScope;
+    class function TryCastThreadToECores(const aThreadHandle: THandle; const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
     /// <summary>
     ///   Tries to set the affinity mask of the P-core processors to a given thread.
     /// </summary>
@@ -207,7 +219,7 @@ type
     ///   When the IProcessorAffinityMaskScope instance becomes NIL again
     ///   the thread will return to its previous affinity mask.
     /// </returns>
-    class function TryCastThreadToPCores(const aThreadHandle: THandle): IProcessorAffinityMaskScope;
+    class function TryCastThreadToPCores(const aThreadHandle: THandle; const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
     /// <summary>
     ///   Tries to set the affinity mask a given processor to a given process.
     /// </summary>
@@ -223,7 +235,8 @@ type
     ///   When the IProcessorAffinityMaskScope instance becomes NIL again
     ///   the process will return to its previous affinity mask.
     /// </returns>
-    class function TryCastProcessToProcessor(const aProcessHandle: THandle; const aProcessorId: Byte): IProcessorAffinityMaskScope;
+    class function TryCastProcessToProcessor(const aProcessHandle: THandle; const aProcessorId: Byte;
+      const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
     /// <summary>
     ///   Tries to set the affinity mask a given processor to a given thread.
     /// </summary>
@@ -239,13 +252,52 @@ type
     ///   When the IProcessorAffinityMaskScope instance becomes NIL again
     ///   the thread will return to its previous affinity mask.
     /// </returns>
-    class function TryCastThreadToProcessor(const aThreadHandle: THandle; const aProcessorId: Byte): IProcessorAffinityMaskScope;
+    class function TryCastThreadToProcessor(const aThreadHandle: THandle; const aProcessorId: Byte;
+      const aRestoreOnDestroy: Boolean = True): IProcessorAffinityMaskScope;
+
+
+    class function TryCastProcessIdToProcessor(const aProcessId: NativeUInt; const aProcessorId: Byte;
+      const aRestoreOnDestroy: Boolean = True): TCpuAccessorCastProcessToProcessorsResult;
+
+    class function TryCastProcessIdToPCores(const aProcessId: NativeUInt;
+      const aRestoreOnDestroy: Boolean = True): TCpuAccessorCastProcessToProcessorsResult;
+
+    class function TryCastProcessIdToECores(const aProcessId: NativeUInt;
+      const aRestoreOnDestroy: Boolean = True): TCpuAccessorCastProcessToProcessorsResult;
+
+    class function TryCastProcessIdToSystemDefault(const aProcessId: NativeUInt;
+      const aRestoreOnDestroy: Boolean = True): TCpuAccessorCastProcessToProcessorsResult;
+
+    class function GetProcessorsForProcess(const aProcessId: NativeUInt): TCpuAccessorGetProcessorsForProcessResult;
   end;
 
 
 implementation
 
 uses System.SysUtils, System.Classes, System.Generics.Defaults, OrderedDictionary, Winapi.Windows, Cpu.Tools;
+
+const
+  PROCESS_QUERY_LIMITED_INFORMATION = $1000;
+
+function GetCpuAccessorProcessHandle(const aProcessId: NativeUInt; const aForSet: Boolean;
+  out aProcessHandle: THandle): TCpuAccessorQueryProcessState;
+begin
+  var lSetFlag: NativeUInt := 0;
+  if aForSet then
+    lSetFlag := PROCESS_SET_INFORMATION;
+  aProcessHandle := Winapi.Windows.OpenProcess(lSetFlag or PROCESS_QUERY_LIMITED_INFORMATION, False, aProcessId);
+  if aProcessHandle = 0 then
+    aProcessHandle := Winapi.Windows.OpenProcess(lSetFlag or PROCESS_QUERY_INFORMATION, False, aProcessId);
+  if aProcessHandle = 0 then
+  begin
+    var lErrorCode := Winapi.Windows.GetLastError;
+    if lErrorCode = Winapi.Windows.ERROR_INVALID_PARAMETER then
+      Exit(TCpuAccessorQueryProcessState.NotFound);
+
+    Exit(TCpuAccessorQueryProcessState.AccessDenied);
+  end;
+  Result := TCpuAccessorQueryProcessState.Successful;
+end;
 
 { TCpuCore }
 
@@ -717,76 +769,203 @@ begin
       Result := Result or (NativeUInt(1) shl lLogicalProcessor.ProcessorId);
 end;
 
-class function TCpuAccessor.TryCastProcessToECores(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
+class function TCpuAccessor.TryCastProcessToECores(const aProcessHandle: THandle; const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
   Result := nil;
   var lAffinityMask := GetECoresAffinityMask;
   if lAffinityMask = 0 then
     Exit;
 
-  Result := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(aProcessHandle);
+  Result := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(aProcessHandle, aRestoreOnDestroy);
   if not Result.SetProcessorAffinityMask(lAffinityMask) then
     Result := nil;
 end;
 
-class function TCpuAccessor.TryCastProcessToPCores(const aProcessHandle: THandle): IProcessorAffinityMaskScope;
+class function TCpuAccessor.TryCastProcessToPCores(const aProcessHandle: THandle; const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
   Result := nil;
   var lAffinityMask := GetPCoresAffinityMask;
   if lAffinityMask = 0 then
     Exit;
 
-  Result := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(aProcessHandle);
+  Result := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(aProcessHandle, aRestoreOnDestroy);
   if not Result.SetProcessorAffinityMask(lAffinityMask) then
     Result := nil;
 end;
 
-class function TCpuAccessor.TryCastProcessToProcessor(const aProcessHandle: THandle; const aProcessorId: Byte): IProcessorAffinityMaskScope;
+class function TCpuAccessor.TryCastProcessToProcessor(const aProcessHandle: THandle; const aProcessorId: Byte;
+  const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
   Result := nil;
   var lAffinityMask: NativeUInt := NativeUInt(1) shl aProcessorId;
   if lAffinityMask = 0 then
     Exit;
 
-  Result := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(aProcessHandle);
+  Result := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(aProcessHandle, aRestoreOnDestroy);
   if not Result.SetProcessorAffinityMask(lAffinityMask) then
     Result := nil;
 end;
 
-class function TCpuAccessor.TryCastThreadToProcessor(const aThreadHandle: THandle; const aProcessorId: Byte): IProcessorAffinityMaskScope;
+class function TCpuAccessor.TryCastThreadToProcessor(const aThreadHandle: THandle; const aProcessorId: Byte;
+  const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
   Result := nil;
   var lAffinityMask: NativeUInt := NativeUInt(1) shl aProcessorId;
   if lAffinityMask = 0 then
     Exit;
 
-  Result := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(aThreadHandle);
+  Result := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(aThreadHandle, aRestoreOnDestroy);
   if not Result.SetProcessorAffinityMask(lAffinityMask) then
     Result := nil;
 end;
 
-class function TCpuAccessor.TryCastThreadToECores(const aThreadHandle: THandle): IProcessorAffinityMaskScope;
+class function TCpuAccessor.TryCastThreadToECores(const aThreadHandle: THandle; const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
   Result := nil;
   var lAffinityMask := GetECoresAffinityMask;
   if lAffinityMask = 0 then
     Exit;
 
-  Result := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(aThreadHandle);
+  Result := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(aThreadHandle, aRestoreOnDestroy);
   if not Result.SetProcessorAffinityMask(lAffinityMask) then
     Result := nil;
 end;
 
-class function TCpuAccessor.TryCastThreadToPCores(const aThreadHandle: THandle): IProcessorAffinityMaskScope;
+class function TCpuAccessor.TryCastThreadToPCores(const aThreadHandle: THandle; const aRestoreOnDestroy: Boolean): IProcessorAffinityMaskScope;
 begin
   Result := nil;
   var lAffinityMask := GetPCoresAffinityMask;
   if lAffinityMask = 0 then
     Exit;
 
-  Result := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(aThreadHandle);
+  Result := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(aThreadHandle, aRestoreOnDestroy);
   if not Result.SetProcessorAffinityMask(lAffinityMask) then
     Result := nil;
+end;
+
+class function TCpuAccessor.TryCastProcessIdToProcessor(const aProcessId: NativeUInt;
+  const aProcessorId: Byte; const aRestoreOnDestroy: Boolean): TCpuAccessorCastProcessToProcessorsResult;
+begin
+  Result := default(TCpuAccessorCastProcessToProcessorsResult);
+  var lProcessHandle: THandle;
+  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  if Result.State <> TCpuAccessorQueryProcessState.Successful then
+    Exit;
+
+  try
+    Result.Scope := TryCastProcessToProcessor(lProcessHandle, aProcessorId, aRestoreOnDestroy);
+    if Assigned(Result.Scope) then
+      Result.State := TCpuAccessorQueryProcessState.Successful
+    else
+      Result.State := TCpuAccessorQueryProcessState.Failed;
+  finally
+    CloseHandle(lProcessHandle);
+  end;
+end;
+
+class function TCpuAccessor.TryCastProcessIdToECores(const aProcessId: NativeUInt;
+  const aRestoreOnDestroy: Boolean): TCpuAccessorCastProcessToProcessorsResult;
+begin
+  Result := default(TCpuAccessorCastProcessToProcessorsResult);
+  var lProcessHandle: THandle;
+  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  if Result.State <> TCpuAccessorQueryProcessState.Successful then
+    Exit;
+
+  try
+    Result.Scope := TryCastProcessToECores(lProcessHandle, aRestoreOnDestroy);
+    if Assigned(Result.Scope) then
+      Result.State := TCpuAccessorQueryProcessState.Successful
+    else
+      Result.State := TCpuAccessorQueryProcessState.Failed;
+  finally
+    CloseHandle(lProcessHandle);
+  end;
+end;
+
+class function TCpuAccessor.TryCastProcessIdToPCores(const aProcessId: NativeUInt;
+  const aRestoreOnDestroy: Boolean): TCpuAccessorCastProcessToProcessorsResult;
+begin
+  Result := default(TCpuAccessorCastProcessToProcessorsResult);
+  var lProcessHandle: THandle;
+  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  if Result.State <> TCpuAccessorQueryProcessState.Successful then
+    Exit;
+
+  try
+    Result.Scope := TryCastProcessToPCores(lProcessHandle, aRestoreOnDestroy);
+    if Assigned(Result.Scope) then
+      Result.State := TCpuAccessorQueryProcessState.Successful
+    else
+      Result.State := TCpuAccessorQueryProcessState.Failed;
+  finally
+    CloseHandle(lProcessHandle);
+  end;
+end;
+
+class function TCpuAccessor.TryCastProcessIdToSystemDefault(const aProcessId: NativeUInt;
+  const aRestoreOnDestroy: Boolean): TCpuAccessorCastProcessToProcessorsResult;
+begin
+  Result := default(TCpuAccessorCastProcessToProcessorsResult);
+  var lProcessHandle: THandle;
+  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  if Result.State <> TCpuAccessorQueryProcessState.Successful then
+    Exit;
+
+  try
+    Result.Scope := TProcessorAffinityMaskScope.CreateProcessAffinityMaskScope(
+      lProcessHandle, aRestoreOnDestroy);
+    Result.State := TCpuAccessorQueryProcessState.Failed;
+    if Assigned(Result.Scope) then
+    begin
+      if Result.Scope.SetProcessorAffinityMaskToSystemMask then
+      begin
+        Result.State := TCpuAccessorQueryProcessState.Successful;
+      end
+      else
+      begin
+        Result.Scope := nil;
+      end;
+    end;
+  finally
+    CloseHandle(lProcessHandle);
+  end;
+end;
+
+class function TCpuAccessor.GetProcessorsForProcess(const aProcessId: NativeUInt): TCpuAccessorGetProcessorsForProcessResult;
+begin
+  Result := default(TCpuAccessorGetProcessorsForProcessResult);
+  var lProcessHandle: THandle;
+  Result.State := GetCpuAccessorProcessHandle(aProcessId, False, lProcessHandle);
+  if Result.State <> TCpuAccessorQueryProcessState.Successful then
+    Exit;
+
+  var lProcessMask: NativeUInt;
+  var lSystemMask: NativeUInt;
+  try
+    if not Winapi.Windows.GetProcessAffinityMask(lProcessHandle, lProcessMask, lSystemMask) then
+    begin
+      Result.State := TCpuAccessorQueryProcessState.Failed;
+      Exit;
+    end;
+  finally
+    CloseHandle(lProcessHandle);
+  end;
+
+  var lBitFieldLength := SizeOf(lProcessMask) * 8;
+  var lCurrentLength := 0;
+  SetLength(Result.Processors, lBitFieldLength);
+  for var i := 0 to lBitFieldLength - 1 do
+  begin
+    var lTestBit := NativeUInt(1) shl i;
+    if lProcessMask and lTestBit = lTestBit then
+    begin
+      Inc(lCurrentLength);
+      Result.Processors[lCurrentLength - 1] := GetCpuSpecification.FindLogicalProcessor(i);
+    end;
+  end;
+  SetLength(Result.Processors, lCurrentLength);
+  Result.State := TCpuAccessorQueryProcessState.Successful;
 end;
 
 class function TCpuAccessor.CpuSetInfoSourceToStr(const aCpuSetInfoSource: TCpuSetInfoSource): string;

@@ -112,6 +112,9 @@
         <DCCReference Include="ProcessorAffinityMaskScope.pas"/>
         <DCCReference Include="Cpu.Tools.pas"/>
         <DCCReference Include="Cpu.Types.pas"/>
+        <DCCReference Include="AggregatedList.pas"/>
+        <DCCReference Include="Enumerations.pas"/>
+        <DCCReference Include="OrderedDictionary.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
