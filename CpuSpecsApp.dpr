@@ -40,6 +40,80 @@ begin
   until done;
 end;
 
+procedure SortingDemo(const aCpuSpecification: tCpuSpecification);
+begin
+  var lScope: IProcessorAffinityMaskScope := nil;
+  repeat
+    Writeln('');
+    Write('Select a processor id [0 - ' + IntToStr(aCpuSpecification.LogicalProcessors.Count - 1) + '] or S for system default');
+    if aCpuSpecification.IsHybrid then
+    begin
+      Write(' or E for E-cores or P for P-cores');
+    end;
+    Write(' for sorting workload: ');
+
+    var lSelectedProcessorStr: string;
+    Readln(lSelectedProcessorStr);
+
+    var lSelectedProcessor: Cardinal;
+    if not TryStrToUInt(lSelectedProcessorStr, lSelectedProcessor) then
+      lSelectedProcessor := 0;
+    if lSelectedProcessor > 255 then
+      lSelectedProcessor := 0;
+
+    var lProcMessage := '';
+    if SameText('S', lSelectedProcessorStr) then
+    begin
+      lScope := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(GetCurrentThread());
+      lScope.SetProcessorAffinityMaskToSystemMask();
+      lProcMessage := 'System default';
+    end
+    else if aCpuSpecification.IsHybrid and SameText('P', lSelectedProcessorStr) then
+    begin
+      lScope := TCpuAccessor.TryCastThreadToPCores(GetCurrentThread());
+      lProcMessage := 'P-core processors';
+    end
+    else if aCpuSpecification.IsHybrid and SameText('E', lSelectedProcessorStr) then
+    begin
+      lScope := TCpuAccessor.TryCastThreadToECores(GetCurrentThread());
+      lProcMessage := 'E-core processors';
+    end
+    else
+    begin
+      lScope := TCpuAccessor.TryCastThreadToProcessor(GetCurrentThread(), lSelectedProcessor);
+      lProcMessage := 'processor id ' + IntToStr(lSelectedProcessor);
+    end;
+    if Assigned(lScope) then
+    begin
+      Writeln('Successfully switched to ' + lProcMessage + '.');
+    end
+    else
+    begin
+      Writeln('Switching to ' + lProcMessage + ' failed.');
+    end;
+  until Assigned(lScope);
+  Writeln('');
+  Writeln('Press <ENTER> to start sorting.');
+  ReadLn;
+
+  var largeList := TList<Cardinal>.Create;
+  for var i := 10000 downto 1 do
+    largeList.Add(i);
+
+  var lSortRuns := 100;
+
+  var lStopwatch := TStopwatch.StartNew;
+  for var i := 1 to lSortRuns do
+  begin
+    Writeln('(' + FormatFloat('000', i) + '/' + IntToStr(lSortRuns) + ') Bubble sorting ' +
+      UIntToStr(largeList.Count) + ' items...');
+    BubbleSort(largeList.ToArray);
+  end;
+  Writeln;
+  Writeln('Done. Elapsed time: ' + FormatFloat('#0.00', lStopwatch.Elapsed.TotalSeconds) + ' seconds.');
+  Writeln;
+end;
+
 procedure ShowCpuSpecs(const aCpuSpecification: tCpuSpecification);
 begin
   var lCacheL1Total: Cardinal := 0;
@@ -89,7 +163,6 @@ begin
       Writeln;
     end;
   end;
-
   Writeln;
   Writeln('CPU caches:');
   for var cache in aCpuSpecification.Caches do
@@ -105,88 +178,31 @@ begin
   Writeln('Total L1 Cache: ' + MemorySizeToStr(lCacheL1Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
   Writeln('Total L2 Cache: ' + MemorySizeToStr(lCacheL2Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
   Writeln('Total L3 Cache: ' + MemorySizeToStr(lCacheL3Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
-
   Writeln('');
-  Writeln('Processor ids [0 - ' + IntToStr(aCpuSpecification.LogicalProcessors.Count - 1) + '] found.');
 end;
 
 begin
   try
     var lCpuInfo := TCpuAccessor.GetCpuSpecification;
-    ShowCpuSpecs(lCpuInfo);
     while True do
     begin
-      var lScope: IProcessorAffinityMaskScope := nil;
-      repeat
-        Writeln('');
-        Write('Select a processor id [0 - ' + IntToStr(lCpuInfo.LogicalProcessors.Count - 1) + '] or S for system default');
-        if lCpuInfo.IsHybrid then
-        begin
-          Write(' or E for E-cores or P for P-cores');
-        end;
-        Write(' for sorting workload: ');
-
-        var lSelectedProcessorStr: string;
-        Readln(lSelectedProcessorStr);
-
-        var lSelectedProcessor: Cardinal;
-        if not TryStrToUInt(lSelectedProcessorStr, lSelectedProcessor) then
-          lSelectedProcessor := 0;
-        if lSelectedProcessor > 255 then
-          lSelectedProcessor := 0;
-
-        var lProcMessage := '';
-        if SameText('S', lSelectedProcessorStr) then
-        begin
-          lScope := TProcessorAffinityMaskScope.CreateThreadAffinityMaskScope(GetCurrentThread());
-          lScope.SetProcessorAffinityMaskToSystemMask();
-          lProcMessage := 'System default';
-        end
-        else if lCpuInfo.IsHybrid and SameText('P', lSelectedProcessorStr) then
-        begin
-          lScope := TCpuAccessor.TryCastThreadToPCores(GetCurrentThread());
-          lProcMessage := 'P-core processors';
-        end
-        else if lCpuInfo.IsHybrid and SameText('E', lSelectedProcessorStr) then
-        begin
-          lScope := TCpuAccessor.TryCastThreadToECores(GetCurrentThread());
-          lProcMessage := 'E-core processors';
-        end
-        else
-        begin
-          lScope := TCpuAccessor.TryCastThreadToProcessor(GetCurrentThread(), lSelectedProcessor);
-          lProcMessage := 'processor id ' + IntToStr(lSelectedProcessor);
-        end;
-        if Assigned(lScope) then
-        begin
-          Writeln('Successfully switched to ' + lProcMessage + '.');
-        end
-        else
-        begin
-          Writeln('Switching to ' + lProcMessage + ' failed.');
-        end;
-      until Assigned(lScope);
-      Writeln('');
-      Writeln('Press <ENTER> to start sorting.');
-      ReadLn;
-
-      var largeList := TList<Cardinal>.Create;
-      for var i := 10000 downto 1 do
-        largeList.Add(i);
-
-      var lSortRuns := 100;
-
-      var lStopwatch := TStopwatch.StartNew;
-      for var i := 1 to lSortRuns do
-      begin
-        Writeln('(' + FormatFloat('000', i) + '/' + IntToStr(lSortRuns) + ') Bubble sorting ' +
-          UIntToStr(largeList.Count) + ' items...');
-        BubbleSort(largeList.ToArray);
-      end;
+      Writeln('Cpu accessor');
+      Writeln('============');
       Writeln;
-      Writeln('Done. Elapsed time: ' + FormatFloat('#0.00', lStopwatch.Elapsed.TotalSeconds) + ' seconds.');
+      Writeln('1) Show CPU specs');
+      Writeln('2) Sorting demo');
+      Writeln('q) quit');
       Writeln;
+      Write('Please select: ');
+      var lMenuCode: string;
+      Readln(lMenuCode);
       Writeln;
+      if SameText(lMenuCode, 'q') then
+        Break
+      else if SameText(lMenuCode, '1') then
+        ShowCpuSpecs(lCpuInfo)
+      else if SameText(lMenuCode, '2') then
+        SortingDemo(lCpuInfo);
     end;
   except
     on E: Exception do
