@@ -2,32 +2,52 @@ unit CpuAccessor;
 
 interface
 
-uses system.Generics.Collections, ProcessorAffinityMaskScope, Cpu.Types;
+uses system.Generics.Collections, ProcessorAffinityMaskScope, Cpu.Types, AggregatedList;
 
 type
+  TCpuSpeeds = record
+    MaxMhz: Cardinal;
+    CurrentMhz: Cardinal;
+    MhzLimit: Cardinal;
+  end;
+
+  TCpuCacheSpecs = record
+    Id: Word;
+    Level: Byte;
+    Type_: Byte;
+    Size: Cardinal;
+    LineCount: Cardinal;
+  end;
+
   TCpuCore = class;
+  TCpuCache = class;
 
   TCpuLogicalProcessor = class
   strict private
     fProcessorId: Byte;
     fCore: TCpuCore;
+    fCaches: TList<TCpuCache>;
   private
-    fMaxMhz: Cardinal;
-    fCurrentMhz: Cardinal;
-    fMhzLimit: Cardinal;
+    fSpeeds: TCpuSpeeds;
   public
     constructor Create(const aCore: TCpuCore; const aProcessorId: Byte);
+    destructor Destroy; override;
     property ProcessorId: Byte read fProcessorId;
     property Core: TCpuCore read fCore;
-    property MaxMhz: Cardinal read fMaxMhz;
-    property CurrentMhz: Cardinal read fCurrentMhz;
-    property MhzLimit: Cardinal read fMhzLimit;
+    property MaxMhz: Cardinal read fSpeeds.MaxMhz;
+    property CurrentMhz: Cardinal read fSpeeds.CurrentMhz;
+    property MhzLimit: Cardinal read fSpeeds.MhzLimit;
+    property Caches: TList<TCpuCache> read fCaches;
   end;
 
   TCpuCore = class
   strict private
     fCoreId: Byte;
     fLogicalProcessors: TList<TCpuLogicalProcessor>;
+    fAggregatedProcessors: TAggregatedList<TCpuSpeeds, Byte>;
+    fAggregatedCaches: TAggregatedList<TCpuCacheSpecs, Word>;
+    function GetAggregatedProcessors: TAggregatedList<TCpuSpeeds, Byte>;
+    function GetAggregatedCaches: TAggregatedList<TCpuCacheSpecs, Word>;
   private
     fEfficiencyClass: Byte;
   public
@@ -36,25 +56,22 @@ type
     property CoreId: Byte read fCoreId;
     property EfficiencyClass: Byte read fEfficiencyClass;
     property LogicalProcessors: TList<TCpuLogicalProcessor> read fLogicalProcessors;
+    property AggregatedProcessors: TAggregatedList<TCpuSpeeds, Byte> read GetAggregatedProcessors;
+    property AggregatedCaches: TAggregatedList<TCpuCacheSpecs, Word> read GetAggregatedCaches;
   end;
 
   TCpuCache = class
-  strict private
-    fCacheId: Word;
   private
-    fLevel: Byte;
-    fType: Byte;
-    fSize: Cardinal;
-    fLineCount: Cardinal;
+    fSpecs: TCpuCacheSpecs;
     fLogicalProcessors: TList<TCpuLogicalProcessor>;
   public
     constructor Create(const aCacheId: Word);
     destructor Destroy; override;
-    property CacheId: Word read fCacheId;
-    property Level: Byte read fLevel;
-    property Type_: Byte read fType;
-    property Size: Cardinal read fSize;
-    property LineCount: Cardinal read fLineCount;
+    property CacheId: Word read fSpecs.Id;
+    property Level: Byte read fSpecs.Level;
+    property Type_: Byte read fSpecs.Type_;
+    property Size: Cardinal read fSpecs.Size;
+    property LineCount: Cardinal read fSpecs.LineCount;
     property LogicalProcessors: TList<TCpuLogicalProcessor> read fLogicalProcessors;
   end;
 
@@ -95,7 +112,6 @@ type
     function GetHypervisorString: string;
     function GetPhysicalCore(const aCoreId: Byte): TCpuCore;
     function GetCacheEntry(const aCacheId: Byte): TCpuCache;
-  private
     function GetHypervisorVersion: string;
     function GetCaches: TList<TCpuCache>;
   public
@@ -229,7 +245,7 @@ type
 
 implementation
 
-uses System.SysUtils, System.Classes, System.Generics.Defaults, Winapi.Windows, Cpu.Tools;
+uses System.SysUtils, System.Classes, System.Generics.Defaults, OrderedDictionary, Winapi.Windows, Cpu.Tools;
 
 { TCpuCore }
 
@@ -243,7 +259,51 @@ end;
 destructor TCpuCore.Destroy;
 begin
   fLogicalProcessors.Free;
+  fAggregatedProcessors.Free;
   inherited;
+end;
+
+function TCpuCore.GetAggregatedCaches: TAggregatedList<TCpuCacheSpecs, Word>;
+begin
+  if Assigned(fAggregatedCaches) then
+    Exit(fAggregatedCaches);
+
+  fAggregatedCaches := TAggregatedList<TCpuCacheSpecs, Word>.Create(
+    TOrderedDictionaryComparer<TCpuCacheSpecs>.Construct(
+      function(const Left, Right: TCpuCacheSpecs): Integer
+      begin
+        Result := 0;
+        if Left.Level < Right.Level then
+          Exit(-1);
+        if Left.Level > Right.Level then
+          Exit(1);
+        if Left.Id < Right.Id then
+          Exit(-1);
+        if Left.Id > Right.Id then
+          Exit(1);
+      end,
+      function(const Value: TCpuCacheSpecs): Integer
+      begin
+        Result := Value.Id;
+      end
+    ));
+
+  for var i in fLogicalProcessors do
+    for var k in i.Caches do
+      fAggregatedCaches.Add(k.fSpecs, k.CacheId);
+
+  Result := fAggregatedCaches;
+end;
+
+function TCpuCore.GetAggregatedProcessors: TAggregatedList<TCpuSpeeds, Byte>;
+begin
+  if Assigned(fAggregatedProcessors) then
+    Exit(fAggregatedProcessors);
+
+  fAggregatedProcessors := TAggregatedList<TCpuSpeeds, Byte>.Create;
+  for var i in fLogicalProcessors do
+    fAggregatedProcessors.Add(i.fSpeeds, i.ProcessorId);
+  Result := fAggregatedProcessors;
 end;
 
 { TCpuLogicalProcessor }
@@ -253,6 +313,13 @@ begin
   inherited Create;
   fCore := aCore;
   fProcessorId := aProcessorId;
+  fCaches := TList<TCpuCache>.Create;
+end;
+
+destructor TCpuLogicalProcessor.Destroy;
+begin
+  fCaches.Free;
+  inherited;
 end;
 
 { TCpuCache }
@@ -261,7 +328,7 @@ constructor TCpuCache.Create(const aCacheId: Word);
 begin
   inherited Create;
   fLogicalProcessors := TList<TCpuLogicalProcessor>.Create;
-  fCacheId := aCacheId;
+  fSpecs.Id := aCacheId;
 end;
 
 destructor TCpuCache.Destroy;
@@ -546,15 +613,16 @@ begin
     procedure(const aCacheRec: CPUACCESSOR_CACHE_INFORMATION)
     begin
       var lCache := GetCacheEntry(aCacheRec.CacheIndex);
-      lCache.fLevel := aCacheRec.CacheLevel;
-      lCache.fType := Ord(aCacheRec.Type_);
-      lCache.fSize := aCacheRec.CacheSize;
-      lCache.fLineCount := aCacheRec.CacheSize div aCacheRec.LineSize;
+      lCache.fSpecs.Level := aCacheRec.CacheLevel;
+      lCache.fSpecs.Type_ := Ord(aCacheRec.Type_);
+      lCache.fSpecs.Size := aCacheRec.CacheSize;
+      lCache.fSpecs.LineCount := aCacheRec.CacheSize div aCacheRec.LineSize;
       for var lLogicalProcessor in fLogicalProcessors do
       begin
         if lLogicalProcessor.ProcessorId = aCacheRec.LogicalProcessorIndex then
         begin
           lCache.LogicalProcessors.Add(lLogicalProcessor);
+          lLogicalProcessor.Caches.Add(lCache);
           Break;
         end;
       end;
@@ -588,9 +656,9 @@ begin
       var lLogikalProcessor := FindLogicalProcessor(aProcessorPowerRec.Number);
       if Assigned(lLogikalProcessor) then
       begin
-        lLogikalProcessor.fMaxMhz := aProcessorPowerRec.MaxMhz;
-        lLogikalProcessor.fCurrentMhz := aProcessorPowerRec.CurrentMhz;
-        lLogikalProcessor.fMhzLimit := aProcessorPowerRec.MhzLimit;
+        lLogikalProcessor.fSpeeds.MaxMhz := aProcessorPowerRec.MaxMhz;
+        lLogikalProcessor.fSpeeds.CurrentMhz := aProcessorPowerRec.CurrentMhz;
+        lLogikalProcessor.fSpeeds.MhzLimit := aProcessorPowerRec.MhzLimit;
       end;
     end)
 end;

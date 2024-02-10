@@ -10,10 +10,14 @@ uses
   System.Diagnostics,
   Winapi.Windows,
   System.Generics.Collections,
+  System.Generics.Defaults,
   CpuAccessor in 'CpuAccessor.pas',
   ProcessorAffinityMaskScope in 'ProcessorAffinityMaskScope.pas',
   Cpu.Tools in 'Cpu.Tools.pas',
-  Cpu.Types in 'Cpu.Types.pas';
+  Cpu.Types in 'Cpu.Types.pas',
+  AggregatedList in 'AggregatedList.pas',
+  Enumerations in 'Enumerations.pas',
+  OrderedDictionary in 'OrderedDictionary.pas';
 
 procedure BubbleSort(var A: array of Cardinal);
 var
@@ -38,6 +42,9 @@ end;
 
 procedure ShowCpuSpecs(const aCpuSpecification: tCpuSpecification);
 begin
+  var lCacheL1Total: Cardinal := 0;
+  var lCacheL2Total: Cardinal := 0;
+  var lCacheL3Total: Cardinal := 0;
   Writeln('CPU Specification');
   Writeln('=================');
   Writeln('Vendor: "' + aCpuSpecification.VendorString + '"');
@@ -60,46 +67,39 @@ begin
     Writeln('');
     Writeln('Core #' + IntToStr(core.CoreId));
     Writeln('   Efficiency class: ' + IntToStr(core.EfficiencyClass));
-    for var logProcessor in core.LogicalProcessors do
+    for var entry in core.AggregatedProcessors.Entries do
     begin
-      Write('   -> Logical processor #' + IntToStr(logProcessor.ProcessorId));
-      Write(', Clock speeds: Max. ' + IntToStr(logProcessor.MaxMhz) +
-        ' MHz, limit ' + IntToStr(logProcessor.MhzLimit) +
-        ' MHz, current ' + IntToStr(logProcessor.CurrentMhz) +
+      Write('   Clock speeds: Max. ' + IntToStr(entry.Key.MaxMhz) +
+        ' MHz, limit ' + IntToStr(entry.Key.MhzLimit) +
+        ' MHz, current ' + IntToStr(entry.Key.CurrentMhz) +
         ' MHz');
+      Write(', Logical processor count: ' + IntToStr(entry.Value.Count));
+      Writeln;
+    end;
+    for var entry in core.AggregatedCaches.Entries do
+    begin
+      var lTargetMemUnit := TMemoryUnit.Kilobytes;
+      if entry.Key.Level > 1 then
+        lTargetMemUnit := TMemoryUnit.Megabytes;
+      Write('   Cache L' + IntToStr(entry.Key.Level) + ' #' + IntToStr(entry.Key.Id));
+      if entry.Key.Type_ > 0 then
+        Write(' ' + TCpuAccessor.CacheTypeToStr(entry.Key.Type_));
+      Write(', Size: ' + MemorySizeToStr(entry.Key.Size, TMemoryUnit.Bytes, lTargetMemUnit));
+      Write(', Lines: ' + UIntToStr(entry.Key.LineCount));
       Writeln;
     end;
   end;
 
-  var lCacheL1Total: Cardinal := 0;
-  var lCacheL2Total: Cardinal := 0;
-  var lCacheL3Total: Cardinal := 0;
   Writeln;
   Writeln('CPU caches:');
   for var cache in aCpuSpecification.Caches do
   begin
-    var lTargetMemUnit := TMemoryUnit.Kilobytes;
-    if cache.Level > 1 then
-      lTargetMemUnit := TMemoryUnit.Megabytes;
     if cache.Level = 1 then
       Inc(lCacheL1Total, cache.Size)
     else if cache.Level = 2 then
       Inc(lCacheL2Total, cache.Size)
     else if cache.Level = 3 then
       Inc(lCacheL3Total, cache.Size);
-
-    Writeln;
-    Write('Cache L' + IntToStr(cache.Level));
-    if cache.Type_ > 0 then
-      Write(' ' + TCpuAccessor.CacheTypeToStr(cache.Type_));
-    Writeln;
-    Writeln('   Size: ' + MemorySizeToStr(cache.Size, TMemoryUnit.Bytes, lTargetMemUnit));
-    Writeln('   Lines: ' + UIntToStr(cache.LineCount));
-    for var logProcessor in cache.LogicalProcessors do
-    begin
-      Write('   -> Logical processor #' + IntToStr(logProcessor.ProcessorId));
-      Writeln;
-    end;
   end;
   Writeln('');
   Writeln('Total L1 Cache: ' + MemorySizeToStr(lCacheL1Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
