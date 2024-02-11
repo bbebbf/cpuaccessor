@@ -17,7 +17,8 @@ uses
   Cpu.Types in 'Cpu.Types.pas',
   AggregatedList in 'AggregatedList.pas',
   Enumerations in 'Enumerations.pas',
-  OrderedDictionary in 'OrderedDictionary.pas';
+  OrderedDictionary in 'OrderedDictionary.pas',
+  ProcessPriorityScope in 'ProcessPriorityScope.pas';
 
 procedure BubbleSort(var A: array of Cardinal);
 var
@@ -90,7 +91,7 @@ begin
     end;
   end;
   Writeln;
-  Writeln('CPU caches:');
+  Writeln('CPU cache totals:');
   for var cache in aCpuSpecification.Caches do
   begin
     if cache.Level = 1 then
@@ -100,11 +101,9 @@ begin
     else if cache.Level = 3 then
       Inc(lCacheL3Total, cache.Size);
   end;
-  Writeln('');
-  Writeln('Total L1 Cache: ' + MemorySizeToStr(lCacheL1Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
-  Writeln('Total L2 Cache: ' + MemorySizeToStr(lCacheL2Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
-  Writeln('Total L3 Cache: ' + MemorySizeToStr(lCacheL3Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
-  Writeln('');
+  Writeln('   L1: ' + MemorySizeToStr(lCacheL1Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
+  Writeln('   L2: ' + MemorySizeToStr(lCacheL2Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
+  Writeln('   L3: ' + MemorySizeToStr(lCacheL3Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
 end;
 
 procedure PrintQueryProcessState(const aState: TCpuAccessorQueryProcessState);
@@ -166,19 +165,26 @@ begin
   end;
 end;
 
+function SelectProcessId: Cardinal;
+begin
+  Write('Process id: ');
+  var lProcessIdStr: string;
+  Readln(lProcessIdStr);
+  if not TryStrToUInt(lProcessIdStr, Result) then
+  begin
+    Result := 0;
+    Writeln('Invalid process id.');
+    Writeln;
+  end;
+end;
+
 procedure CastProcessIdToProcessor(const aCpuSpecification: tCpuSpecification);
 begin
   Writeln('Cast process to processor');
   Writeln('-------------------------');
-  Write('Process id: ');
-  var lProcessIdStr: string;
-  Readln(lProcessIdStr);
-  var lProcessId: Cardinal;
-  if not TryStrToUInt(lProcessIdStr, lProcessId) then
-  begin
-    Writeln('Invalid process id.');
+  var lProcessId := SelectProcessId;
+  if lProcessId = 0 then
     Exit;
-  end;
 
   var lSelectedProcessorStr :=  SelectProcessors(aCpuSpecification, False);
   var lResult: TCpuAccessorCastProcessToProcessorsResult;
@@ -199,7 +205,6 @@ begin
     lResult := TCpuAccessor.TryCastProcessIdToProcessor(lProcessId, StrToInt(lSelectedProcessorStr), False);
   end;
   PrintQueryProcessState(lResult.State);
-  Writeln;
 end;
 
 procedure PrintAffinityMask(const aProcessId: Cardinal);
@@ -222,25 +227,16 @@ begin
   begin
     PrintQueryProcessState(lResult.State);
   end;
-  Writeln;
 end;
 
 procedure QueryAffinityMask;
 begin
-  var lProcessId: Cardinal;
   Writeln('Query affinity mask');
   Writeln('-------------------');
-  Write('Process id: ');
-  var lProcessIdStr: string;
-  Readln(lProcessIdStr);
-  if not TryStrToUInt(lProcessIdStr, lProcessId) then
-  begin
-    Writeln('Invalid process id.');
-    Writeln;
+  var lProcessId := SelectProcessId;
+  if lProcessId = 0 then
     Exit;
-  end;
   PrintAffinityMask(lProcessId);
-  Writeln;
 end;
 
 procedure SortingDemo(const aCpuSpecification: tCpuSpecification);
@@ -308,7 +304,63 @@ begin
   end;
   Writeln;
   Writeln('Done. Elapsed time: ' + FormatFloat('#0.00', lStopwatch.Elapsed.TotalSeconds) + ' seconds.');
-  Writeln;
+end;
+
+procedure QueryProcessPriorityClass;
+begin
+  Writeln('Query process priority class');
+  Writeln('----------------------------');
+  var lProcessId := SelectProcessId;
+  if lProcessId = 0 then
+    Exit;
+
+  var lProcessHandle: THandle;
+  var lResult := GetProcessHandle(lProcessId, True, lProcessHandle);
+  if lResult <> TCpuAccessorQueryProcessState.Successful then
+  begin
+    PrintQueryProcessState(lResult);
+    Exit;
+  end;
+
+  Writeln('Priority class: $' + IntToHex(TProcessThreadPriorityScope.GetProcessPriority(lProcessHandle), 0));
+end;
+
+procedure SetProcessPriorityClass;
+begin
+  Writeln('Set process priority class');
+  Writeln('--------------------------');
+  var lProcessId := SelectProcessId;
+  if lProcessId = 0 then
+    Exit;
+
+  var lProcessHandle: THandle;
+  var lResult := GetProcessHandle(lProcessId, True, lProcessHandle);
+  if lResult <> TCpuAccessorQueryProcessState.Successful then
+  begin
+    PrintQueryProcessState(lResult);
+    Exit;
+  end;
+
+  Write('Priority class: ');
+  var lPriorityClassStr: string;
+  Readln(lPriorityClassStr);
+  var lPriorityClass: DWORD;
+  if not TryStrToUInt(lPriorityClassStr, lPriorityClass) then
+  begin
+    Writeln('Invalid priority class "' + lPriorityClassStr + '".');
+    Exit;
+  end;
+
+  var lSetResult := TProcessThreadPriorityScope.CreateProcessPriorityScope(lProcessHandle, False)
+    .SetProcessPriorityClass(lPriorityClass);
+  if lSetResult.Successful then
+  begin
+    Writeln('Successful. Actually set to $' + IntToHex(lSetResult.ActuallySetToPriorityClass, 0) + '.');
+  end
+  else
+  begin
+    Writeln('Failed.');
+  end;
 end;
 
 begin
@@ -325,6 +377,8 @@ begin
       Writeln('2) Sorting demo');
       Writeln('3) Query affinity mask for process id');
       Writeln('4) Cast process id to processor');
+      Writeln('5) Query process priority class');
+      Writeln('6) Set process priority class');
       Writeln('Q) Quit');
       Writeln;
       Write('Please select: ');
@@ -340,7 +394,12 @@ begin
       else if SameText(lMenuCode, '3') then
         QueryAffinityMask()
       else if SameText(lMenuCode, '4') then
-        CastProcessIdToProcessor(lCpuInfo);
+        CastProcessIdToProcessor(lCpuInfo)
+      else if SameText(lMenuCode, '5') then
+        QueryProcessPriorityClass()
+      else if SameText(lMenuCode, '6') then
+        SetProcessPriorityClass();
+      Writeln;
     end;
   except
     on E: Exception do

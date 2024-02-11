@@ -134,8 +134,6 @@ type
     property Caches: TList<TCpuCache> read GetCaches;
   end;
 
-  TCpuAccessorQueryProcessState = (NotFound, AccessDenied, Successful, Failed);
-
   TCpuAccessorCastProcessToProcessorsResult = record
     State: TCpuAccessorQueryProcessState;
     Scope: IProcessorAffinityMaskScope;
@@ -275,29 +273,6 @@ type
 implementation
 
 uses System.SysUtils, System.Classes, System.Generics.Defaults, OrderedDictionary, Winapi.Windows, Cpu.Tools;
-
-const
-  PROCESS_QUERY_LIMITED_INFORMATION = $1000;
-
-function GetCpuAccessorProcessHandle(const aProcessId: NativeUInt; const aForSet: Boolean;
-  out aProcessHandle: THandle): TCpuAccessorQueryProcessState;
-begin
-  var lSetFlag: NativeUInt := 0;
-  if aForSet then
-    lSetFlag := PROCESS_SET_INFORMATION;
-  aProcessHandle := Winapi.Windows.OpenProcess(lSetFlag or PROCESS_QUERY_LIMITED_INFORMATION, False, aProcessId);
-  if aProcessHandle = 0 then
-    aProcessHandle := Winapi.Windows.OpenProcess(lSetFlag or PROCESS_QUERY_INFORMATION, False, aProcessId);
-  if aProcessHandle = 0 then
-  begin
-    var lErrorCode := Winapi.Windows.GetLastError;
-    if lErrorCode = Winapi.Windows.ERROR_INVALID_PARAMETER then
-      Exit(TCpuAccessorQueryProcessState.NotFound);
-
-    Exit(TCpuAccessorQueryProcessState.AccessDenied);
-  end;
-  Result := TCpuAccessorQueryProcessState.Successful;
-end;
 
 { TCpuCore }
 
@@ -848,7 +823,7 @@ class function TCpuAccessor.TryCastProcessIdToProcessor(const aProcessId: Native
 begin
   Result := default(TCpuAccessorCastProcessToProcessorsResult);
   var lProcessHandle: THandle;
-  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  Result.State := GetProcessHandle(aProcessId, True, lProcessHandle);
   if Result.State <> TCpuAccessorQueryProcessState.Successful then
     Exit;
 
@@ -868,7 +843,7 @@ class function TCpuAccessor.TryCastProcessIdToECores(const aProcessId: NativeUIn
 begin
   Result := default(TCpuAccessorCastProcessToProcessorsResult);
   var lProcessHandle: THandle;
-  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  Result.State := GetProcessHandle(aProcessId, True, lProcessHandle);
   if Result.State <> TCpuAccessorQueryProcessState.Successful then
     Exit;
 
@@ -888,7 +863,7 @@ class function TCpuAccessor.TryCastProcessIdToPCores(const aProcessId: NativeUIn
 begin
   Result := default(TCpuAccessorCastProcessToProcessorsResult);
   var lProcessHandle: THandle;
-  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  Result.State := GetProcessHandle(aProcessId, True, lProcessHandle);
   if Result.State <> TCpuAccessorQueryProcessState.Successful then
     Exit;
 
@@ -908,7 +883,7 @@ class function TCpuAccessor.TryCastProcessIdToSystemDefault(const aProcessId: Na
 begin
   Result := default(TCpuAccessorCastProcessToProcessorsResult);
   var lProcessHandle: THandle;
-  Result.State := GetCpuAccessorProcessHandle(aProcessId, True, lProcessHandle);
+  Result.State := GetProcessHandle(aProcessId, True, lProcessHandle);
   if Result.State <> TCpuAccessorQueryProcessState.Successful then
     Exit;
 
@@ -936,7 +911,7 @@ class function TCpuAccessor.GetProcessorsForProcess(const aProcessId: NativeUInt
 begin
   Result := default(TCpuAccessorGetProcessorsForProcessResult);
   var lProcessHandle: THandle;
-  Result.State := GetCpuAccessorProcessHandle(aProcessId, False, lProcessHandle);
+  Result.State := GetProcessHandle(aProcessId, False, lProcessHandle);
   if Result.State <> TCpuAccessorQueryProcessState.Successful then
     Exit;
 

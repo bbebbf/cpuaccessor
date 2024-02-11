@@ -89,6 +89,8 @@ type
 
   TMemoryUnit = (Bytes, Kilobytes, Megabytes, Gigabytes, Terrabytes);
 
+  TCpuAccessorQueryProcessState = (NotFound, AccessDenied, Successful, Failed);
+
 const
   CpuVendorStrings: Array[TCpuVendor] of string =
     (
@@ -125,6 +127,9 @@ function UInt32ToBitset32(const aValue: UInt32): TBitset32;
 
 function MemorySizeToStr(const aValue: UInt64; const aSourceUnit, aTargetUnit: TMemoryUnit;
   const aDigit: TRoundToRange = 0): string;
+
+function GetProcessHandle(const aProcessId: NativeUInt; const aForSetInfo: Boolean;
+  out aProcessHandle: THandle): TCpuAccessorQueryProcessState;
 
 implementation
 
@@ -165,6 +170,28 @@ begin
   if aDigit < 0 then
     lDigitFormat := '.' + DupeString('0', Abs(aDigit));
   Result := FormatFloat('#0' + lDigitFormat, lTranslatedValue) + ' ' + MemoryUnitStrings[aTargetUnit];
+end;
+
+function GetProcessHandle(const aProcessId: NativeUInt; const aForSetInfo: Boolean;
+  out aProcessHandle: THandle): TCpuAccessorQueryProcessState;
+const
+  PROCESS_QUERY_LIMITED_INFORMATION = $1000;
+begin
+  var lSetFlag: NativeUInt := 0;
+  if aForSetInfo then
+    lSetFlag := PROCESS_SET_INFORMATION;
+  aProcessHandle := Winapi.Windows.OpenProcess(lSetFlag or PROCESS_QUERY_LIMITED_INFORMATION, False, aProcessId);
+  if aProcessHandle = 0 then
+    aProcessHandle := Winapi.Windows.OpenProcess(lSetFlag or PROCESS_QUERY_INFORMATION, False, aProcessId);
+  if aProcessHandle = 0 then
+  begin
+    var lErrorCode := Winapi.Windows.GetLastError;
+    if lErrorCode = Winapi.Windows.ERROR_INVALID_PARAMETER then
+      Exit(TCpuAccessorQueryProcessState.NotFound);
+
+    Exit(TCpuAccessorQueryProcessState.AccessDenied);
+  end;
+  Result := TCpuAccessorQueryProcessState.Successful;
 end;
 
 end.

@@ -129,6 +129,7 @@
         <DCCReference Include="AggregatedList.pas"/>
         <DCCReference Include="Enumerations.pas"/>
         <DCCReference Include="OrderedDictionary.pas"/>
+        <DCCReference Include="ProcessPriorityScope.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
