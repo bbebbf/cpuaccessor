@@ -126,7 +126,10 @@ const
 function UInt32ToBitset32(const aValue: UInt32): TBitset32;
 
 function MemorySizeToStr(const aValue: UInt64; const aSourceUnit, aTargetUnit: TMemoryUnit;
-  const aDigit: TRoundToRange = 0): string;
+  const aDigit: TRoundToRange = 0): string; overload;
+
+function MemorySizeToStr(const aValue: UInt64; const aSourceUnit, aTargetUnit: TMemoryUnit;
+  const aMinTargetValue, aMaxTargetValue: Extended; const aDigit: TRoundToRange = 0): string; overload;
 
 function GetProcessHandle(const aProcessId: NativeUInt; const aForSetInfo: Boolean;
   out aProcessHandle: THandle): TCpuAccessorQueryProcessState;
@@ -154,22 +157,44 @@ end;
 function MemorySizeToStr(const aValue: UInt64; const aSourceUnit, aTargetUnit: TMemoryUnit;
   const aDigit: TRoundToRange): string;
 begin
-  var lTranslatedValue: Extended := aValue;
-  if aSourceUnit < aTargetUnit then
-  begin
-    for var i := Succ(aSourceUnit) to aTargetUnit do
-      lTranslatedValue := lTranslatedValue / 1024;
-  end
-  else if aTargetUnit < aSourceUnit then
-  begin
-    for var i := Succ(aTargetUnit) to aSourceUnit do
-      lTranslatedValue := lTranslatedValue * 1024;
-  end;
-  lTranslatedValue := System.Math.SimpleRoundTo(lTranslatedValue, aDigit);
+  Result := MemorySizeToStr(aValue, aSourceUnit, aTargetUnit, 0, 0, aDigit);
+end;
+
+function MemorySizeToStr(const aValue: UInt64; const aSourceUnit, aTargetUnit: TMemoryUnit;
+  const aMinTargetValue, aMaxTargetValue: Extended; const aDigit: TRoundToRange): string;
+begin
+  var lCalculatedTargetUnit := aTargetUnit;
+  var lTargetOutOfRange: Boolean;
+  var lTranslatedValue: Extended;
+  repeat
+    lTranslatedValue := aValue;
+    if aSourceUnit < lCalculatedTargetUnit then
+    begin
+      for var i := Succ(aSourceUnit) to lCalculatedTargetUnit do
+        lTranslatedValue := lTranslatedValue / 1024;
+    end
+    else if lCalculatedTargetUnit < aSourceUnit then
+    begin
+      for var i := Succ(lCalculatedTargetUnit) to aSourceUnit do
+        lTranslatedValue := lTranslatedValue * 1024;
+    end;
+    lTargetOutOfRange := False;
+    if (aMinTargetValue <> 0) and (lTranslatedValue < aMinTargetValue) and (lCalculatedTargetUnit > Low(lCalculatedTargetUnit)) then
+    begin
+      lTargetOutOfRange := True;
+      lCalculatedTargetUnit := Pred(lCalculatedTargetUnit);
+    end;
+    if not lTargetOutOfRange and (aMaxTargetValue <> 0) and (lTranslatedValue > aMaxTargetValue) and (lCalculatedTargetUnit < High(lCalculatedTargetUnit)) then
+    begin
+      lTargetOutOfRange := True;
+      lCalculatedTargetUnit := Succ(lCalculatedTargetUnit);
+    end;
+  until not lTargetOutOfRange;
   var lDigitFormat := '';
   if aDigit < 0 then
     lDigitFormat := '.' + DupeString('0', Abs(aDigit));
-  Result := FormatFloat('#0' + lDigitFormat, lTranslatedValue) + ' ' + MemoryUnitStrings[aTargetUnit];
+  lTranslatedValue := System.Math.SimpleRoundTo(lTranslatedValue, aDigit);
+  Result := FormatFloat('#0' + lDigitFormat, lTranslatedValue) + ' ' + MemoryUnitStrings[lCalculatedTargetUnit];
 end;
 
 function GetProcessHandle(const aProcessId: NativeUInt; const aForSetInfo: Boolean;

@@ -79,13 +79,10 @@ begin
     end;
     for var entry in core.AggregatedCaches.Entries do
     begin
-      var lTargetMemUnit := TMemoryUnit.Kilobytes;
-      if entry.Key.Level > 1 then
-        lTargetMemUnit := TMemoryUnit.Megabytes;
       Write('   Cache L' + IntToStr(entry.Key.Level) + ' #' + IntToStr(entry.Key.Id));
       if entry.Key.Type_ > 0 then
         Write(' ' + TCpuAccessor.CacheTypeToStr(entry.Key.Type_));
-      Write(', Size: ' + MemorySizeToStr(entry.Key.Size, TMemoryUnit.Bytes, lTargetMemUnit));
+      Write(', Size: ' + MemorySizeToStr(entry.Key.Size, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, 1, 0));
       Write(', Lines: ' + UIntToStr(entry.Key.LineCount));
       Writeln;
     end;
@@ -101,9 +98,9 @@ begin
     else if cache.Level = 3 then
       Inc(lCacheL3Total, cache.Size);
   end;
-  Writeln('   L1: ' + MemorySizeToStr(lCacheL1Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
-  Writeln('   L2: ' + MemorySizeToStr(lCacheL2Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
-  Writeln('   L3: ' + MemorySizeToStr(lCacheL3Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, -1));
+  Writeln('   L1: ' + MemorySizeToStr(lCacheL1Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, 1, 0, -1));
+  Writeln('   L2: ' + MemorySizeToStr(lCacheL2Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, 1, 0, -1));
+  Writeln('   L3: ' + MemorySizeToStr(lCacheL3Total, TMemoryUnit.Bytes, TMemoryUnit.Megabytes, 1, 0, -1));
 end;
 
 procedure PrintQueryProcessState(const aState: TCpuAccessorQueryProcessState);
@@ -355,7 +352,10 @@ begin
     .SetProcessPriorityClass(lPriorityClass);
   if lSetResult.Successful then
   begin
-    Writeln('Successful. Actually set to $' + IntToHex(lSetResult.ActuallySetToPriorityClass, 0) + '.');
+    Write('Successful.');
+    if lPriorityClass <> lSetResult.ActuallySetToPriorityClass then
+      Write(' Actually set to $' + IntToHex(lSetResult.ActuallySetToPriorityClass, 0) + '.');
+    Writeln;
   end
   else
   begin
